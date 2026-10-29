@@ -1,13 +1,4 @@
-if not LPH_OBFUSCATED then
-	LPH_NO_VIRTUALIZE = function(callback)
-	return callback
-	end
-	end
-
-	;LPH_NO_VIRTUALIZE(function()
-
-	do
-	local scriptEnv = _G
+local scriptEnv = _G
 	pcall(function()
 	if type(getfenv) == "function" then scriptEnv = getfenv(0) end
 	end)
