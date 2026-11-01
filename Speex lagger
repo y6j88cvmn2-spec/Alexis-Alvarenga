@@ -1,0 +1,634 @@
+--[[
+    SPEEX LAGGER
+    V1/V2/V3 + collapse _ + scale +- + lock
+    Packages.Net remote + table.create payload
+]]
+
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RS = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+
+local LP = Players.LocalPlayer
+local CONFIG_FILE = "SpeexPacketLagger_Config.json"
+
+if type(_G.__SpeexPacketStop) == "function" then
+    pcall(_G.__SpeexPacketStop)
+end
+do
+    local pg = LP:FindFirstChild("PlayerGui")
+    local old = pg and pg:FindFirstChild("SPEEX_PACKET_LAGGER")
+    if old then old:Destroy() end
+end
+
+local C = {
+    bg       = Color3.fromRGB(12, 14, 18),
+    panel    = Color3.fromRGB(18, 22, 28),
+    input    = Color3.fromRGB(28, 34, 44),
+    hover    = Color3.fromRGB(40, 50, 64),
+    accent   = Color3.fromRGB(0, 190, 255),
+    cyan     = Color3.fromRGB(80, 220, 255),
+    text     = Color3.fromRGB(240, 248, 255),
+    dim      = Color3.fromRGB(140, 155, 175),
+    stroke   = Color3.fromRGB(50, 70, 95),
+    green    = Color3.fromRGB(0, 210, 130),
+    red      = Color3.fromRGB(230, 70, 90),
+    orange   = Color3.fromRGB(255, 150, 40),
+    white    = Color3.fromRGB(255, 255, 255),
+}
+
+-- V1 light | V2 normal | V3 hard (strong opponent lag/tp)
+local MODES = {
+    V1 = { bursts = 2, wait = 0.016, copies = 1 },
+    V2 = { bursts = 4, wait = 0.008, copies = 1 },
+    V3 = { bursts = 8, wait = 0.005, copies = 2 },
+}
+
+local FULL_H = 340
+local MINI_H = 42
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "SPEEX_PACKET_LAGGER"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.DisplayOrder = 999
+gui.Parent = LP:WaitForChild("PlayerGui")
+
+local Main = Instance.new("Frame", gui)
+Main.Size = UDim2.new(0, 280, 0, FULL_H)
+Main.Position = UDim2.new(1, -300, 0.5, -170)
+Main.BackgroundColor3 = C.bg
+Main.BorderSizePixel = 0
+Main.ClipsDescendants = true
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 12)
+local ms = Instance.new("UIStroke", Main)
+ms.Color = C.stroke
+ms.Thickness = 1.2
+ms.Transparency = 0.25
+
+local UIScale = Instance.new("UIScale", Main)
+UIScale.Scale = 1
+
+-- Header
+local Top = Instance.new("Frame", Main)
+Top.Size = UDim2.new(1, 0, 0, 42)
+Top.BackgroundColor3 = C.panel
+Top.BorderSizePixel = 0
+Top.ZIndex = 2
+Instance.new("UICorner", Top).CornerRadius = UDim.new(0, 12)
+
+local Title = Instance.new("TextLabel", Top)
+Title.BackgroundTransparency = 1
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.Size = UDim2.new(1, -110, 1, 0)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 12
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.TextColor3 = C.text
+Title.Text = "SPEEX LAGGER"
+Title.ZIndex = 3
+
+local function topBtn(text, x, color)
+    local b = Instance.new("TextButton", Top)
+    b.Size = UDim2.new(0, 28, 0, 26)
+    b.Position = UDim2.new(1, x, 0.5, -13)
+    b.BackgroundColor3 = color or C.input
+    b.BorderSizePixel = 0
+    b.Text = text
+    b.Font = Enum.Font.GothamBlack
+    b.TextSize = 14
+    b.TextColor3 = C.text
+    b.AutoButtonColor = false
+    b.ZIndex = 4
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    return b
+end
+
+local CollapseBtn = topBtn("_", -34, C.orange)
+local LockBtn     = topBtn("🔓", -66, C.input)
+CollapseBtn.TextSize = 16
+LockBtn.TextSize = 12
+
+-- Mini ON/OFF when menu is collapsed
+local MiniToggle = Instance.new("TextButton", Top)
+MiniToggle.Size = UDim2.new(0, 52, 0, 26)
+MiniToggle.Position = UDim2.new(1, -124, 0.5, -13)
+MiniToggle.BackgroundColor3 = C.input
+MiniToggle.BorderSizePixel = 0
+MiniToggle.Text = "OFF"
+MiniToggle.Font = Enum.Font.GothamBlack
+MiniToggle.TextSize = 11
+MiniToggle.TextColor3 = C.dim
+MiniToggle.AutoButtonColor = false
+MiniToggle.Visible = false
+MiniToggle.ZIndex = 4
+Instance.new("UICorner", MiniToggle).CornerRadius = UDim.new(0, 6)
+
+local Body = Instance.new("Frame", Main)
+Body.Position = UDim2.new(0, 0, 0, 46)
+Body.Size = UDim2.new(1, 0, 1, -46)
+Body.BackgroundTransparency = 1
+Body.ZIndex = 2
+local pad = Instance.new("UIPadding", Body)
+pad.PaddingLeft = UDim.new(0, 12)
+pad.PaddingRight = UDim.new(0, 12)
+pad.PaddingTop = UDim.new(0, 4)
+pad.PaddingBottom = UDim.new(0, 12)
+
+local y = 0
+local function section(text)
+    local l = Instance.new("TextLabel", Body)
+    l.BackgroundTransparency = 1
+    l.Position = UDim2.new(0, 0, 0, y)
+    l.Size = UDim2.new(1, 0, 0, 14)
+    l.Font = Enum.Font.GothamBold
+    l.TextSize = 10
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.TextColor3 = C.dim
+    l.Text = text
+    l.ZIndex = 3
+    y = y + 16
+    return l
+end
+
+local function makeModeBtn(parent, text, xScale, wScale)
+    local b = Instance.new("TextButton", parent)
+    b.Size = UDim2.new(wScale, -4, 1, 0)
+    b.Position = UDim2.new(xScale, 2, 0, 0)
+    b.BackgroundColor3 = C.input
+    b.BorderSizePixel = 0
+    b.Text = text
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 12
+    b.TextColor3 = C.dim
+    b.AutoButtonColor = false
+    b.ZIndex = 3
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    return b
+end
+
+-- MODE V1 V2 V3
+section("MODE")
+local ModeRow = Instance.new("Frame", Body)
+ModeRow.Position = UDim2.new(0, 0, 0, y)
+ModeRow.Size = UDim2.new(1, 0, 0, 32)
+ModeRow.BackgroundTransparency = 1
+y = y + 38
+
+local modeBtns = {
+    V1 = makeModeBtn(ModeRow, "V1", 0,    1/3),
+    V2 = makeModeBtn(ModeRow, "V2", 1/3,  1/3),
+    V3 = makeModeBtn(ModeRow, "V3", 2/3,  1/3),
+}
+
+local PacketTag = Instance.new("TextButton", Body)
+PacketTag.Position = UDim2.new(0, 0, 0, y)
+PacketTag.Size = UDim2.new(1, 0, 0, 26)
+PacketTag.BackgroundColor3 = C.input
+PacketTag.BorderSizePixel = 0
+PacketTag.Text = "SPEEX"
+PacketTag.Font = Enum.Font.GothamBold
+PacketTag.TextSize = 12
+PacketTag.TextColor3 = C.cyan
+PacketTag.AutoButtonColor = false
+PacketTag.ZIndex = 3
+Instance.new("UICorner", PacketTag).CornerRadius = UDim.new(0, 6)
+y = y + 34
+
+-- POWER
+section("SPEEX POWER")
+local PowerRow = Instance.new("Frame", Body)
+PowerRow.Position = UDim2.new(0, 0, 0, y)
+PowerRow.Size = UDim2.new(1, 0, 0, 34)
+PowerRow.BackgroundTransparency = 1
+y = y + 40
+
+local function smallBtn(parent, text, x)
+    local b = Instance.new("TextButton", parent)
+    b.Size = UDim2.new(0, 34, 1, 0)
+    b.Position = UDim2.new(0, x, 0, 0)
+    b.BackgroundColor3 = C.input
+    b.BorderSizePixel = 0
+    b.Text = text
+    b.Font = Enum.Font.GothamBlack
+    b.TextSize = 16
+    b.TextColor3 = C.text
+    b.AutoButtonColor = false
+    b.ZIndex = 3
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+    return b
+end
+
+local Minus = smallBtn(PowerRow, "−", 0)
+local Plus  = smallBtn(PowerRow, "+", 220)
+
+local PowerBox = Instance.new("TextBox", PowerRow)
+PowerBox.Position = UDim2.new(0, 40, 0, 0)
+PowerBox.Size = UDim2.new(0, 172, 1, 0)
+PowerBox.BackgroundColor3 = C.input
+PowerBox.BorderSizePixel = 0
+PowerBox.Text = "50000"
+PowerBox.Font = Enum.Font.GothamBold
+PowerBox.TextSize = 14
+PowerBox.TextColor3 = C.cyan
+PowerBox.ClearTextOnFocus = false
+PowerBox.ZIndex = 3
+Instance.new("UICorner", PowerBox).CornerRadius = UDim.new(0, 8)
+
+-- SCALE
+section("MENU SCALE")
+local ScaleRow = Instance.new("Frame", Body)
+ScaleRow.Position = UDim2.new(0, 0, 0, y)
+ScaleRow.Size = UDim2.new(1, 0, 0, 30)
+ScaleRow.BackgroundTransparency = 1
+y = y + 36
+
+local ScaleMinus = smallBtn(ScaleRow, "−", 0)
+ScaleMinus.Size = UDim2.new(0, 40, 1, 0)
+local ScalePlus  = smallBtn(ScaleRow, "+", 216)
+ScalePlus.Size = UDim2.new(0, 40, 1, 0)
+
+local ScaleLbl = Instance.new("TextLabel", ScaleRow)
+ScaleLbl.Position = UDim2.new(0, 48, 0, 0)
+ScaleLbl.Size = UDim2.new(0, 160, 1, 0)
+ScaleLbl.BackgroundColor3 = C.input
+ScaleLbl.BorderSizePixel = 0
+ScaleLbl.Font = Enum.Font.GothamBold
+ScaleLbl.TextSize = 13
+ScaleLbl.TextColor3 = C.text
+ScaleLbl.Text = "100%"
+ScaleLbl.ZIndex = 3
+Instance.new("UICorner", ScaleLbl).CornerRadius = UDim.new(0, 8)
+
+-- KEYBIND
+section("KEYBIND")
+local KeyBtn = Instance.new("TextButton", Body)
+KeyBtn.Position = UDim2.new(0, 0, 0, y)
+KeyBtn.Size = UDim2.new(1, 0, 0, 32)
+KeyBtn.BackgroundColor3 = C.input
+KeyBtn.BorderSizePixel = 0
+KeyBtn.Text = "V"
+KeyBtn.Font = Enum.Font.GothamBold
+KeyBtn.TextSize = 13
+KeyBtn.TextColor3 = C.cyan
+KeyBtn.AutoButtonColor = false
+KeyBtn.ZIndex = 3
+Instance.new("UICorner", KeyBtn).CornerRadius = UDim.new(0, 8)
+y = y + 38
+
+local StatusLbl = Instance.new("TextLabel", Body)
+StatusLbl.BackgroundTransparency = 1
+StatusLbl.Position = UDim2.new(0, 0, 0, y)
+StatusLbl.Size = UDim2.new(1, 0, 0, 14)
+StatusLbl.Font = Enum.Font.GothamBold
+StatusLbl.TextSize = 11
+StatusLbl.TextXAlignment = Enum.TextXAlignment.Left
+StatusLbl.Text = "IDLE"
+StatusLbl.TextColor3 = C.dim
+StatusLbl.ZIndex = 3
+
+local StartBtn = Instance.new("TextButton", Body)
+StartBtn.Position = UDim2.new(0, 0, 1, -44)
+StartBtn.Size = UDim2.new(1, 0, 0, 40)
+StartBtn.BackgroundColor3 = C.white
+StartBtn.BorderSizePixel = 0
+StartBtn.Text = "ACTIVATE"
+StartBtn.Font = Enum.Font.GothamBlack
+StartBtn.TextSize = 14
+StartBtn.TextColor3 = Color3.fromRGB(20, 24, 30)
+StartBtn.AutoButtonColor = false
+StartBtn.ZIndex = 3
+Instance.new("UICorner", StartBtn).CornerRadius = UDim.new(0, 10)
+
+-- STATE
+local lagging = false
+local lagThread = nil
+local power = 50000
+local mode = "V2"
+local toggleKey = Enum.KeyCode.V
+local toggleKeyName = "V"
+local listening = false
+local Event = nil
+local locked = false
+local collapsed = false
+local guiScale = 1
+
+local function tween(obj, props, t)
+    TweenService:Create(obj, TweenInfo.new(t or 0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
+end
+
+local function setStatus(t, col)
+    StatusLbl.Text = t
+    StatusLbl.TextColor3 = col or C.dim
+end
+
+local function clampPower(v)
+    v = tonumber(v)
+    if not v then return power end
+    return math.clamp(math.floor(v), 1, 100000)
+end
+
+local function setPower(v)
+    power = clampPower(v)
+    PowerBox.Text = tostring(power)
+end
+
+local function applyScale(s)
+    guiScale = math.clamp(s, 0.6, 1.4)
+    UIScale.Scale = guiScale
+    ScaleLbl.Text = math.floor(guiScale * 100) .. "%"
+end
+
+local function paintMode()
+    for name, btn in pairs(modeBtns) do
+        if name == mode then
+            btn.BackgroundColor3 = C.accent
+            btn.TextColor3 = C.white
+        else
+            btn.BackgroundColor3 = C.input
+            btn.TextColor3 = C.dim
+        end
+    end
+end
+
+local function paintStart()
+    if lagging then
+        StartBtn.Text = "SPEEX ON - " .. power
+        StartBtn.BackgroundColor3 = C.green
+        StartBtn.TextColor3 = C.white
+        MiniToggle.Text = "ON"
+        MiniToggle.BackgroundColor3 = C.green
+        MiniToggle.TextColor3 = C.white
+    else
+        StartBtn.Text = "ACTIVATE"
+        StartBtn.BackgroundColor3 = C.white
+        StartBtn.TextColor3 = Color3.fromRGB(20, 24, 30)
+        MiniToggle.Text = "OFF"
+        MiniToggle.BackgroundColor3 = C.input
+        MiniToggle.TextColor3 = C.dim
+    end
+end
+
+local function paintLock()
+    if locked then
+        LockBtn.Text = "🔒"
+        LockBtn.BackgroundColor3 = C.orange
+    else
+        LockBtn.Text = "🔓"
+        LockBtn.BackgroundColor3 = C.input
+    end
+end
+
+local function setCollapsed(v)
+    collapsed = v
+    if collapsed then
+        CollapseBtn.Text = "+"
+        MiniToggle.Visible = true
+        tween(Main, {Size = UDim2.new(0, 280, 0, MINI_H)}, 0.22)
+        Body.Visible = false
+    else
+        CollapseBtn.Text = "_"
+        MiniToggle.Visible = false
+        Body.Visible = true
+        tween(Main, {Size = UDim2.new(0, 280, 0, FULL_H)}, 0.22)
+    end
+end
+
+-- NET REMOTE
+local function findEvent()
+    local function pick(net)
+        if not net then return nil end
+        local kids = net:GetChildren()
+        if kids[230] and kids[230]:IsA("RemoteEvent") then return kids[230] end
+        for i = #kids, 1, -1 do
+            if kids[i]:IsA("RemoteEvent") then return kids[i] end
+        end
+        for _, c in ipairs(kids) do
+            if c:IsA("RemoteEvent") then return c end
+        end
+        return nil
+    end
+    local packages = RS:FindFirstChild("Packages")
+    if packages then
+        local ev = pick(packages:FindFirstChild("Net"))
+        if ev then return ev end
+    end
+    local ok, net = pcall(function()
+        local p = RS:WaitForChild("Packages", 2)
+        return p and p:WaitForChild("Net", 2)
+    end)
+    if ok and net then return pick(net) end
+    return nil
+end
+
+local function resolveEvent()
+    Event = findEvent()
+    if Event then
+        setStatus("READY", C.green)
+        return true
+    end
+    setStatus("NO NET REMOTE", C.red)
+    return false
+end
+
+local function startLag()
+    if lagging then return end
+    if not Event or not Event.Parent then
+        if not resolveEvent() then return end
+    end
+    power = clampPower(PowerBox.Text)
+    PowerBox.Text = tostring(power)
+    lagging = true
+    paintStart()
+    setStatus("SPEEX ON - " .. power .. " [" .. mode .. "]", C.green)
+
+    -- Speex style payload — does not block local grab/carry
+    local payload = table.create(power, function() end)
+
+    lagThread = task.spawn(function()
+        while lagging do
+            if not Event or not Event.Parent then
+                resolveEvent()
+                if not Event then
+                    task.wait(0.4)
+                    continue
+                end
+            end
+
+            local m = MODES[mode] or MODES.V2
+            local copies = m.copies or 1
+
+            -- fire hard so opponents lag / rubberband; local can still grab brain
+            for _ = 1, m.bursts do
+                for _ = 1, copies do
+                    pcall(function()
+                        Event:FireServer(payload)
+                    end)
+                end
+            end
+
+            task.wait(m.wait)
+        end
+    end)
+end
+
+local function stopLag()
+    if not lagging then return end
+    lagging = false
+    if lagThread then pcall(task.cancel, lagThread); lagThread = nil end
+    paintStart()
+    setStatus("IDLE", C.dim)
+end
+
+local function saveCfg()
+    power = clampPower(PowerBox.Text)
+    if writefile then
+        pcall(function()
+            writefile(CONFIG_FILE, HttpService:JSONEncode({
+                Power = power,
+                Mode = mode,
+                Keybind = toggleKeyName,
+                Scale = guiScale,
+                Locked = locked,
+                PX_S = Main.Position.X.Scale, PX_O = Main.Position.X.Offset,
+                PY_S = Main.Position.Y.Scale, PY_O = Main.Position.Y.Offset,
+            }))
+        end)
+    end
+end
+
+local function loadCfg()
+    if not (readfile and isfile and isfile(CONFIG_FILE)) then return end
+    local ok, cfg = pcall(function()
+        return HttpService:JSONDecode(readfile(CONFIG_FILE))
+    end)
+    if not (ok and type(cfg) == "table") then return end
+    if tonumber(cfg.Power) then setPower(cfg.Power) end
+    if type(cfg.Mode) == "string" and MODES[cfg.Mode] then mode = cfg.Mode end
+    if tonumber(cfg.Scale) then applyScale(cfg.Scale) end
+    if type(cfg.Locked) == "boolean" then locked = cfg.Locked; paintLock() end
+    if type(cfg.Keybind) == "string" and cfg.Keybind ~= "" then
+        toggleKeyName = cfg.Keybind
+        local ok2, k = pcall(function() return Enum.KeyCode[toggleKeyName] end)
+        if ok2 and k then toggleKey = k end
+        KeyBtn.Text = toggleKeyName
+    end
+    if tonumber(cfg.PX_S) and tonumber(cfg.PX_O) and tonumber(cfg.PY_S) and tonumber(cfg.PY_O) then
+        Main.Position = UDim2.new(cfg.PX_S, cfg.PX_O, cfg.PY_S, cfg.PY_O)
+    end
+end
+
+-- Connections
+for name, btn in pairs(modeBtns) do
+    btn.MouseButton1Click:Connect(function()
+        mode = name
+        paintMode()
+        saveCfg()
+        if lagging then stopLag(); startLag() end
+    end)
+end
+
+PowerBox.FocusLost:Connect(function()
+    setPower(PowerBox.Text)
+    saveCfg()
+    if lagging then stopLag(); startLag() end
+end)
+Minus.MouseButton1Click:Connect(function() setPower(power - 1000); saveCfg() end)
+Plus.MouseButton1Click:Connect(function() setPower(power + 1000); saveCfg() end)
+
+ScaleMinus.MouseButton1Click:Connect(function()
+    applyScale(guiScale - 0.05)
+    saveCfg()
+end)
+ScalePlus.MouseButton1Click:Connect(function()
+    applyScale(guiScale + 0.05)
+    saveCfg()
+end)
+
+CollapseBtn.MouseButton1Click:Connect(function()
+    setCollapsed(not collapsed)
+end)
+
+MiniToggle.MouseButton1Click:Connect(function()
+    if lagging then stopLag() else startLag() end
+end)
+
+LockBtn.MouseButton1Click:Connect(function()
+    locked = not locked
+    paintLock()
+    saveCfg()
+end)
+
+StartBtn.MouseButton1Click:Connect(function()
+    if lagging then stopLag() else startLag() end
+end)
+
+KeyBtn.MouseButton1Click:Connect(function()
+    if listening then return end
+    listening = true
+    KeyBtn.Text = "..."
+end)
+
+UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if listening and input.UserInputType == Enum.UserInputType.Keyboard then
+        listening = false
+        toggleKeyName = input.KeyCode.Name
+        toggleKey = input.KeyCode
+        KeyBtn.Text = toggleKeyName
+        saveCfg()
+        return
+    end
+    if input.KeyCode == toggleKey then
+        if lagging then stopLag() else startLag() end
+    end
+end)
+
+-- Drag (respect lock)
+do
+    local dragging, dragStart, startPos
+    Top.InputBegan:Connect(function(input)
+        if locked then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = Main.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    saveCfg()
+                end
+            end)
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if locked or not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            local d = input.Position - dragStart
+            Main.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + d.X,
+                startPos.Y.Scale, startPos.Y.Offset + d.Y
+            )
+        end
+    end)
+end
+
+task.defer(function()
+    loadCfg()
+    paintMode()
+    paintStart()
+    paintLock()
+    resolveEvent()
+end)
+
+_G.__SpeexPacketStop = function()
+    stopLag()
+    pcall(function() gui:Destroy() end)
+end
+
+print("✅ SPEEX LAGGER loaded")
+return gui
