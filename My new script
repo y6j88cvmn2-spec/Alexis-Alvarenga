@@ -852,7 +852,7 @@ tw=function(o,t,p,s,d) _TS:Create(o,_TI(t,s or _ESQ,d or _EDO),p):Play() end;gui
 gui.Name="CrimsonHub";gui.ResetOnSpawn=false;gui.DisplayOrder=10;gui.IgnoreGuiInset=false;gui.Enabled=false
 pcall(function()if syn and syn.protect_gui then syn.protect_gui(gui)end end)
 if not pcall(function()gui.Parent=game:GetService("CoreGui")end)then gui.Parent=LP:WaitForChild("PlayerGui") end;root=_I("CanvasGroup",gui)
-root.Name="CrimsonHub_Root";root.AnchorPoint=Vector2.new(0,0.5);root.Size=_U(0,356,0,566);root.Position=_U(0,20,0.5,0);root.Visible=false;root[_BgC]=C.ink;root[_BgT]=0;root[_BSP]=0;root.Active=true;root[_ClD]=false;_I(_UCR,root)[_CRad]=_UD(0,14);local rootStroke=_I(_USK,root);rootStroke.Color=_C(125,8,22);rootStroke.Transparency=0.22;rootStroke.Thickness=1.25;local uiScale=_I("UIScale",root);uiScale.Scale=_St.guiScale
+root.Name="CrimsonHub_Root";root.AnchorPoint=Vector2.new(0,0.5);root.Size=_U(0,790,0,850);root.Position=_U(0.5,-395,0.5,0);root.Visible=false;root[_BgC]=C.ink;root[_BgT]=0;root[_BSP]=0;root.Active=true;root[_ClD]=false;_I(_UCR,root)[_CRad]=_UD(0,14);local rootStroke=_I(_USK,root);rootStroke.Color=_C(125,8,22);rootStroke.Transparency=0.22;rootStroke.Thickness=1.25;local uiScale=_I("UIScale",root);uiScale.Scale=_St.guiScale
 local function _removeCrimsonOutline(obj)
 if obj and obj:IsA(_USK)then pcall(function()obj.Enabled=false end);pcall(function()obj.Thickness=0 end)end
 end
@@ -885,22 +885,23 @@ local glowTop=_I(_FR,bgShade);glowTop.Name="CrimsonAmbientGlow";glowTop.AnchorPo
 local glowGradient=_I("UIGradient",glowTop);glowGradient.Rotation=90;glowGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.18),NumberSequenceKeypoint.new(1,1)})
 local glowBottom=_I(_FR,bgShade);glowBottom.Name="CrimsonBottomGlow";glowBottom.AnchorPoint=Vector2.new(0.5,1);glowBottom.Position=_U(0.5,0,1,0);glowBottom.Size=_U(1,80,0,150);glowBottom[_BgC]=_C(90,5,25);glowBottom[_BgT]=0.78;glowBottom[_BSP]=0;glowBottom[_ZI]=1;_I(_UCR,glowBottom)[_CRad]=_UD(1,0)
 local bottomGradient=_I("UIGradient",glowBottom);bottomGradient.Rotation=90;bottomGradient.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,1),NumberSequenceKeypoint.new(1,0.12)})
-local portrait=_I(_FR,root);portrait.Size=_U(1,0,0,122);portrait.Position=_U(0,0,0,0);portrait[_BgT]=1;portrait[_BSP]=0;portrait[_ClD]=false;portrait[_ZI]=2
+local portrait=_I(_FR,root);portrait.Size=_U(1,0,0,300);portrait.Position=_U(0,0,0,0);portrait[_BgT]=1;portrait[_BSP]=0;portrait[_ClD]=false;portrait[_ZI]=2
 do
-local crimsonTitle=_I(_TL,portrait);crimsonTitle.Size=_U(1,0,0,30);crimsonTitle.Position=_U(0,0,0,10);crimsonTitle[_BgT]=1;crimsonTitle.Text="CRIMSON HUB";crimsonTitle[_TC3]=_C(0,0,0);crimsonTitle[_TSC]=_C(0,0,0);crimsonTitle[_TST]=0.35;crimsonTitle.Font=Enum.Font.FredokaOne;crimsonTitle[_TSz]=27;crimsonTitle[_TXAl]=_TXC;crimsonTitle[_ZI]=6
+local crimsonTitle=_I(_TL,portrait);crimsonTitle.Size=_U(0,500,0,58);crimsonTitle.Position=_U(0,38,0,22);crimsonTitle[_BgT]=1;crimsonTitle.RichText=true;crimsonTitle.Text="<font color="rgb(235,35,55)">CRIMSON</font> <font color="rgb(245,245,248)">HUB</font>";crimsonTitle[_TC3]=_C(255,255,255);crimsonTitle[_TSC]=_C(0,0,0);crimsonTitle[_TST]=0.35;crimsonTitle.Font=Enum.Font.GothamBlack;crimsonTitle[_TSz]=35;crimsonTitle[_TXAl]=_TXL;crimsonTitle[_ZI]=6
 local titleGrad=_I("UIGradient",crimsonTitle);titleGrad.Color=ColorSequence.new(_C(0,0,0));local crimsonGlow=_I(_USK,crimsonTitle);crimsonGlow.Color=_C(0,0,0);crimsonGlow.Transparency=0.08;crimsonGlow.Thickness=0.9
 local profileImage="rbxthumb://type=AvatarHeadShot&id="..tostring(LP.UserId).."&w=150&h=150";pcall(function()local img=_PL:GetUserThumbnailAsync(LP.UserId,Enum.ThumbnailType.HeadShot,Enum.ThumbnailSize.Size150x150);if img and img~=""then profileImage=img end end)
-local halo=_I(_FR,portrait);halo.AnchorPoint=Vector2.new(0.5,0);halo.Position=_U(0.5,0,0,40);halo.Size=_U(0,80,0,80);halo[_BgC]=C.purple;halo[_BgT]=1;halo.Visible=false;halo[_BSP]=0;halo[_ZI]=4;_I(_UCR,halo)[_CRad]=_UD(0,40)
-local profileBg=_I(_FR,portrait);profileBg.AnchorPoint=Vector2.new(0.5,0);profileBg.Position=_U(0.5,0,0,44);profileBg.Size=_U(0,72,0,72);profileBg[_BgC]=C.dpurple;profileBg[_BgT]=1;profileBg.Visible=false;profileBg[_BSP]=0;profileBg[_ZI]=5;_I(_UCR,profileBg)[_CRad]=_UD(0,36);local pbs=_I(_USK,profileBg);pbs.Color=C.lpurple;pbs.Transparency=1;pbs.Thickness=1.7;local pbg=_I("UIGradient",profileBg);pbg.Color=ColorSequence.new({_CSK(0,_C(5,0,1)),_CSK(0.4,_C(105,3,18)),_CSK(0.72,_C(230,25,48)),_CSK(1,_C(20,0,4))});pbg.Rotation=45
-local avatar=_I(_IL,portrait);avatar.AnchorPoint=Vector2.new(0.5,0);avatar.Position=_U(0.5,0,0,48);avatar.Size=_U(0,64,0,64);avatar[_BgC]=C.void;avatar[_BgT]=0;avatar[_BSP]=0;avatar.Image=profileImage;avatar.ScaleType=Enum.ScaleType.Crop;avatar[_ZI]=6;_I(_UCR,avatar)[_CRad]=_UD(0,32);local avs=_I(_USK,avatar);avs.Color=C.border;avs.Transparency=1;avs.Thickness=0
+local halo=_I(_FR,portrait);halo.AnchorPoint=Vector2.new(0,0);halo.Position=_U(0,36,0,122);halo.Size=_U(0,90,0,90);halo[_BgC]=C.purple;halo[_BgT]=1;halo.Visible=false;halo[_BSP]=0;halo[_ZI]=4;_I(_UCR,halo)[_CRad]=_UD(0,40)
+local profileBg=_I(_FR,portrait);profileBg.AnchorPoint=Vector2.new(0,0);profileBg.Position=_U(0,40,0,126);profileBg.Size=_U(0,82,0,82);profileBg[_BgC]=C.dpurple;profileBg[_BgT]=1;profileBg.Visible=false;profileBg[_BSP]=0;profileBg[_ZI]=5;_I(_UCR,profileBg)[_CRad]=_UD(0,36);local pbs=_I(_USK,profileBg);pbs.Color=C.lpurple;pbs.Transparency=1;pbs.Thickness=1.7;local pbg=_I("UIGradient",profileBg);pbg.Color=ColorSequence.new({_CSK(0,_C(5,0,1)),_CSK(0.4,_C(105,3,18)),_CSK(0.72,_C(230,25,48)),_CSK(1,_C(20,0,4))});pbg.Rotation=45
+local avatar=_I(_IL,portrait);avatar.AnchorPoint=Vector2.new(0,0);avatar.Position=_U(0,49,0,135);avatar.Size=_U(0,64,0,64);avatar[_BgC]=C.void;avatar[_BgT]=0;avatar[_BSP]=0;avatar.Image=profileImage;avatar.ScaleType=Enum.ScaleType.Crop;avatar[_ZI]=6;_I(_UCR,avatar)[_CRad]=_UD(0,32);local avs=_I(_USK,avatar);avs.Color=C.border;avs.Transparency=1;avs.Thickness=0
+local welcome=_I(_TL,portrait);welcome.Size=_U(0,470,0,54);welcome.Position=_U(0,155,0,142);welcome[_BgT]=1;welcome.Text="Welcome to Crimson Hub!";welcome[_TC3]=_C(205,195,205);welcome.Font=_EGN;welcome[_TSz]=22;welcome[_TXAl]=_TXL;welcome[_ZI]=6
 end
-local headerDivider=_I(_FR,root);headerDivider.Size=_U(1,-34,0,1);headerDivider.Position=_U(0,17,0,122);headerDivider[_BgC]=_C(135,8,25);headerDivider[_BgT]=1;headerDivider[_BSP]=0;headerDivider[_ZI]=6;headerDivider.Visible=false
-ctrl=_I(_FR,root);ctrl.Size=_U(1,-26,1,-144);ctrl.Position=_U(0,13,0,132);ctrl[_BgT]=1;ctrl[_BSP]=0;ctrl[_ClD]=true;ctrl[_ZI]=2
-local TAB_NAMES={"Main","Move","Custom","Config"};local tabBtns={};local activePage=nil;tabStack=_I(_FR,root);tabStack.Size=_U(1,0,0,122);tabStack.Position=_U(0,0,0,0)
+local headerDivider=_I(_FR,root);headerDivider.Size=_U(1,-54,0,1);headerDivider.Position=_U(0,27,0,300);headerDivider[_BgC]=_C(135,8,25);headerDivider[_BgT]=1;headerDivider[_BSP]=0;headerDivider[_ZI]=6;headerDivider.Visible=false
+ctrl=_I(_FR,root);ctrl.Size=_U(1,-26,1,-370);ctrl.Position=_U(0,13,0,365);ctrl[_BgT]=1;ctrl[_BSP]=0;ctrl[_ClD]=true;ctrl[_ZI]=2
+local TAB_NAMES={"Main","Move","Custom","Config"};local tabBtns={};local activePage=nil;tabStack=_I(_FR,root);tabStack.Size=_U(1,0,0,64);tabStack.Position=_U(0,0,0,300)
 tabStack[_BgT]=1;tabStack[_BSP]=0;tabStack[_ZI]=8;pageHost=_I(_FR,ctrl);pageHost.Size=_Us(1,1);pageHost.Position=_U(0,0,0,0);pageHost[_BgT]=1;pageHost[_BSP]=0;pageHost[_ClD]=true;pageHost[_ZI]=4
 local function makePage()
 local sf=_I(_SCF,pageHost);sf.Size=_U(1,0,1,0);sf[_BgT]=1;sf[_BSP]=0;sf.ScrollBarThickness=0;sf.ScrollBarImageColor3=C.purple;sf.AutomaticCanvasSize=Enum.AutomaticSize.Y;sf.CanvasSize=_U(0,0,0,0)
-sf.Visible=false;sf[_ZI]=4;local ll=_I("UIListLayout",sf);ll.SortOrder=Enum.SortOrder.LayoutOrder;ll.Padding=_UD(0,4);local pp=_I("UIPadding",sf);pp.PaddingLeft=_UD(0,10);pp.PaddingRight=_UD(0,16);pp.PaddingTop=_UD(0,10);pp.PaddingBottom=_UD(0,52)
+sf.Visible=false;sf[_ZI]=4;local ll=_I("UIListLayout",sf);ll.SortOrder=Enum.SortOrder.LayoutOrder;ll.Padding=_UD(0,8);local pp=_I("UIPadding",sf);pp.PaddingLeft=_UD(0,12);pp.PaddingRight=_UD(0,16);pp.PaddingTop=_UD(0,12);pp.PaddingBottom=_UD(0,52)
 return sf
 end
 local pages={};for _,n in ipairs(TAB_NAMES)do pages[n]=makePage()end
@@ -1007,10 +1008,10 @@ end
 end
 end)
 end
-local TAB_DISPLAY={Main="MAIN",Move="COMBAT",Config="SETTINGS",Custom="CUSTOMIZE"};local TAB_POS={Main=_U(0,16,0,45),Move=_U(0,16,0,82),Custom=_U(1,-113,0,45),Config=_U(1,-113,0,82)}
+local TAB_DISPLAY={Main="⌂  Main",Move="✥  Move",Config="☷  Config",Custom="⚙  Custom"};local TAB_POS={Main=_U(0,20,0,8),Move=_U(0,207,0,8),Custom=_U(0,394,0,8),Config=_U(0,581,0,8)}
 for i,name in ipairs(TAB_NAMES)do
-local btn=_I(_TB,tabStack);btn.Size=_U(0,97,0,34);btn.Position=TAB_POS[name];btn[_BgC]=_C(0,0,0);btn[_BgT]=0;btn[_BSP]=0
-btn.Text=TAB_DISPLAY[name]or name;btn[_TC3]=name=="Main"and C.white or C.dim;btn[_TSC]=_C(0,0,0);btn[_TST]=0.42;btn.Font=_EGBK;btn[_TSz]=9;btn.LayoutOrder=i;btn[_ZI]=9;btn[_ABC]=false;_I(_UCR,btn)[_CRad]=_UD(0,7);local btnStroke=_I(_USK,btn);btnStroke.Color=name=="Main"and C.lpurple or C.stkBrd;btnStroke.Transparency=name=="Main"and 0.06 or 0.48;btnStroke.Thickness=name=="Main"and 1.5 or 1.15;tabBtns[name]=btn
+local btn=_I(_TB,tabStack);btn.Size=_U(0,170,0,48);btn.Position=TAB_POS[name];btn[_BgC]=_C(0,0,0);btn[_BgT]=0;btn[_BSP]=0
+btn.Text=TAB_DISPLAY[name]or name;btn[_TC3]=name=="Main"and C.white or C.dim;btn[_TSC]=_C(0,0,0);btn[_TST]=0.42;btn.Font=_EGBK;btn[_TSz]=15;btn.LayoutOrder=i;btn[_ZI]=9;btn[_ABC]=false;_I(_UCR,btn)[_CRad]=_UD(0,7);local btnStroke=_I(_USK,btn);btnStroke.Color=name=="Main"and C.lpurple or C.stkBrd;btnStroke.Transparency=name=="Main"and 0.06 or 0.48;btnStroke.Thickness=name=="Main"and 1.5 or 1.15;tabBtns[name]=btn
 _tc(btn,function()switchTab(name)end)
 end
 activePage=pages["Main"];activePage.Visible=true;local rowCounts={Main=0,Move=0,Config=0,Custom=0};local function nextLO(pg)rowCounts[pg]=rowCounts[pg]+1;return rowCounts[pg]end;local function gap(pg,h2) local f=_I(_FR,pages[pg]);f.Size=_U(1,0,0,h2 or 5);f[_BgT]=1;f[_BSP]=0;f.LayoutOrder=nextLO(pg) end
@@ -1027,7 +1028,7 @@ return f,rs
 end
 local function mkLbl(parent,txt,x,y,w,h2,size,color,font,align) local l=_I(_TL,parent);l.Size=_U(w or 0.55,0,0,h2 or 42);l.Position=_U(0,x or 10,0,y or 0);l[_BgT]=1;l.Text=txt;l[_TC3]=color or C.white;l[_TSC]=_C(0,0,0);l[_TST]=0.32;l.Font=font or _EGB;l[_TSz]=size or 11;l[_TXAl]=align or _TXL;return l end
 local function _mkt(pg,label,defKey,defOn,onToggle,onKeyChange)
-local row,rs=mkRow(pg,42);mkLbl(row,label,10,0,0,42,10,C.white,_EGB);local keyBtn=nil
+local row,rs=mkRow(pg,62);mkLbl(row,label,18,0,0,62,15,C.white,_EGB);local keyBtn=nil
 if defKey then
 keyBtn=_I(_TB,row);keyBtn.Size=_U(0,54,0,25);keyBtn.Position=_U(1,-130,0.5,-12.5);keyBtn[_BgC]=C.void;keyBtn[_BgT]=1;keyBtn[_BSP]=0;keyBtn.Text=defKey.Name;keyBtn[_TC3]=C.dim;keyBtn.Font=_EGB;keyBtn[_TSz]=9;keyBtn[_ZI]=5;_I(_UCR,keyBtn)[_CRad]=_UD(0,7);local ks=_I(_USK,keyBtn);ks.Color=C.border;ks.Thickness=1.25;local kl=false;local kCancel;local function kReset()tw(ks,0.1,{Color=C.border});keyBtn[_TC3]=C.dim end
 local function kStop(k) kl=false;if kCancel then local c=kCancel;kCancel=nil;c()end;kReset();if k then keyBtn.Text=k.Name;if onKeyChange then onKeyChange(k)end end end
@@ -1047,7 +1048,7 @@ if keyBtn then keyBtn[_ZI]=6 end;pill[_ZI]=5;knob[_ZI]=6
 return setV,keyBtn,row
 end
 local function mkInput(pg,label,default,onChange)
-local row=mkRow(pg,42);mkLbl(row,label,10,0,0,42,10,C.white,_EGB);local box=_I("TextBox",row);box.Size=_U(0,88,0,32);box.Position=_U(1,-96,0.5,-16)
+local row=mkRow(pg,62);mkLbl(row,label,18,0,0,62,15,C.white,_EGB);local box=_I("TextBox",row);box.Size=_U(0,88,0,32);box.Position=_U(1,-96,0.5,-16)
 box[_BgC]=C.void;box[_BgT]=1;box[_BSP]=0;box.Text=tostring(default);box[_TC3]=C.lpurple;box.Font=_EGB;box[_TSz]=12;box.ClearTextOnFocus=true;box.MultiLine=false;_I(_UCR,box)[_CRad]=_UD(0,8);local bs=_I(_USK,box);bs.Color=C.border;bs.Transparency=0.22;bs.Thickness=1.25;local currentVal=tostring(default)
 box.Focused:Connect(function()tw(bs,0.1,{Color=C.purple})end)
 box.FocusLost:Connect(function()
