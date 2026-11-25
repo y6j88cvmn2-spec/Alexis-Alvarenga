@@ -1,0 +1,654 @@
+repeat task.wait() until game:IsLoaded()
+
+-- ============================================================
+-- FICTION DUELS INTRO ANIMATION - CINEMATIC UPGRADE
+-- ============================================================
+local INTRO_SOUND_IDS = {
+    [1] = "17504881745",
+    [2] = "8003103632",
+    [3] = "7556198569",
+}
+local selectedIntroIndex = 1
+local playIntroEnabled = true
+
+local function playIntroPreview(index)
+    index = math.clamp(tonumber(index) or selectedIntroIndex or 1, 1, 3)
+    local sound = Instance.new("Sound")
+    sound.Name = "FictionDuelsIntroPreview"
+    sound.SoundId = "rbxassetid://" .. tostring(INTRO_SOUND_IDS[index])
+    sound.Volume = 0.8
+    sound.Looped = false
+    sound.Parent = game:GetService("SoundService")
+    pcall(function() sound:Play() end)
+    task.delay(6, function() pcall(function() sound:Destroy() end) end)
+end
+
+local function playIntroAnimation()
+    local Tw = game:GetService("TweenService")
+    local Sg = game:GetService("StarterGui")
+    local pr = game:GetService("Players").LocalPlayer
+    local pg = pr:WaitForChild("PlayerGui")
+    local D = 3.0
+    local LID = "rbxassetid://83005178077555"
+    
+    -- Silver palette
+    local Silver1 = Color3.fromRGB(255, 255, 255)
+    local Silver2 = Color3.fromRGB(200, 200, 200)
+    local Silver3 = Color3.fromRGB(150, 150, 150)
+    local Silver4 = Color3.fromRGB(80, 80, 80)
+
+    local INTRO_SOUND_ID = tostring(INTRO_SOUND_IDS[selectedIntroIndex] or INTRO_SOUND_IDS[1])
+
+    local introBlur -- created in the background section below, forward-declared so the skip button can reach it
+
+    local function tn(i, t, st, dr, pr2)
+        return Tw:Create(i, TweenInfo.new(t, st, dr), pr2)
+    end
+
+    pcall(function() Sg:SetCore("TopbarEnabled", false) end)
+    local function uf() pcall(function() Sg:SetCore("TopbarEnabled", true) end) end
+
+    local ex = pg:FindFirstChild("FictionDuelsIntro")
+    if ex then ex:Destroy() end
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "FictionDuelsIntro"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.DisplayOrder = 1000
+    gui.Parent = pg
+    
+    local introActive = true
+
+    -- SKIP INTRO BUTTON - glass pill with shimmering text + animated arrow
+    local skipBtn = Instance.new("TextButton", gui)
+    skipBtn.Size = UDim2.new(0, 130, 0, 38)
+    skipBtn.Position = UDim2.new(1, -160, 0, 20) -- starts off to the right, slides in
+    skipBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    skipBtn.BackgroundTransparency = 0.85
+    skipBtn.BorderSizePixel = 0
+    skipBtn.Text = "SKIP INTRO"
+    skipBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    skipBtn.TextTransparency = 1 -- hidden, fades/slides in below
+    skipBtn.Font = Enum.Font.GothamBold
+    skipBtn.TextSize = 13
+    skipBtn.ZIndex = 50
+    skipBtn.AutoButtonColor = false
+    skipBtn.ClipsDescendants = false
+    Instance.new("UICorner", skipBtn).CornerRadius = UDim.new(1, 0)
+
+    local skipStroke = Instance.new("UIStroke", skipBtn)
+    skipStroke.Color = Color3.fromRGB(255, 255, 255)
+    skipStroke.Thickness = 1
+    skipStroke.Transparency = 1
+
+    -- shimmering gradient sweep across the text (UIGradient tints TextButton text too)
+    local skipShimmer = Instance.new("UIGradient", skipBtn)
+    skipShimmer.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(160, 160, 160)),
+        ColorSequenceKeypoint.new(0.45, Color3.fromRGB(255, 255, 255)),
+        ColorSequenceKeypoint.new(0.55, Color3.fromRGB(255, 255, 255)),
+        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(160, 160, 160)),
+    })
+    skipShimmer.Rotation = 0
+    skipShimmer.Offset = Vector2.new(-1, 0)
+
+    -- animated arrow that idly nudges to hint "click me"
+    local skipArrow = Instance.new("TextLabel", skipBtn)
+    skipArrow.Size = UDim2.new(0, 16, 1, 0)
+    skipArrow.Position = UDim2.new(1, -24, 0, 0)
+    skipArrow.BackgroundTransparency = 1
+    skipArrow.Text = "\226\128\186" -- "›"
+    skipArrow.TextColor3 = Color3.fromRGB(255, 255, 255)
+    skipArrow.TextTransparency = 1
+    skipArrow.Font = Enum.Font.GothamBold
+    skipArrow.TextSize = 16
+    skipArrow.ZIndex = 51
+
+    local skipHovering = false
+
+    -- continuous shimmer sweep + idle arrow nudge, runs the whole intro
+    task.spawn(function()
+        local t = 0
+        while gui and gui.Parent and introActive do
+            task.wait(0.03)
+            t = t + 0.03
+            local speed = skipHovering and 0.9 or 0.35
+            skipShimmer.Offset = Vector2.new(((t * speed) % 2) - 1, 0)
+            skipArrow.Position = UDim2.new(1, -24 + math.sin(t * 3) * 3, 0, 0)
+        end
+    end)
+
+    -- entrance: slide in from the right + fade up, after a short beat
+    task.delay(0.4, function()
+        tn(skipBtn, 0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out, {
+            Position = UDim2.new(1, -145, 0, 20),
+            TextTransparency = 0,
+            BackgroundTransparency = 0.75,
+        }):Play()
+        tn(skipStroke, 0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, {Transparency = 0.4}):Play()
+        tn(skipArrow, 0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, {TextTransparency = 0.1}):Play()
+    end)
+
+    skipBtn.MouseEnter:Connect(function()
+        skipHovering = true
+        tn(skipBtn, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
+            BackgroundTransparency = 0.55,
+            Position = UDim2.new(1, -148, 0, 20),
+        }):Play()
+        tn(skipStroke, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {Transparency = 0.1}):Play()
+    end)
+    skipBtn.MouseLeave:Connect(function()
+        skipHovering = false
+        tn(skipBtn, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
+            BackgroundTransparency = 0.75,
+            Position = UDim2.new(1, -145, 0, 20),
+        }):Play()
+        tn(skipStroke, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {Transparency = 0.4}):Play()
+    end)
+    skipBtn.MouseButton1Down:Connect(function()
+        tn(skipBtn, 0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {BackgroundTransparency = 0.35}):Play()
+    end)
+    skipBtn.MouseButton1Up:Connect(function()
+        tn(skipBtn, 0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {BackgroundTransparency = 0.55}):Play()
+    end)
+
+    skipBtn.MouseButton1Click:Connect(function()
+        if not introActive then return end
+        introActive = false
+        -- quick fade-out burst so the click feels responsive instead of an instant cut
+        tn(skipBtn, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {
+            TextTransparency = 1, BackgroundTransparency = 1,
+        }):Play()
+        tn(skipStroke, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {Transparency = 1}):Play()
+        tn(skipArrow, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {TextTransparency = 1}):Play()
+        if introBlur then
+            tn(introBlur, 0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {Size = 0}):Play()
+        end
+        task.delay(0.2, function()
+            pcall(function()
+                if introBlur and introBlur.Parent then introBlur:Destroy() end
+            end)
+            pcall(function()
+                if gui and gui.Parent then gui:Destroy() end
+            end)
+            uf()
+        end)
+    end)
+
+    -- BACKGROUND: real depth-of-field blur on the game world (not a black screen),
+    -- plus a light tint frame so the intro text stays readable. Player movement,
+    -- camera, and controls are never touched, so you can keep walking/looking
+    -- around the whole time the intro plays.
+    local Lighting = game:GetService("Lighting")
+
+    local existingBlur = Lighting:FindFirstChild("FictionDuelsIntroBlur")
+    if existingBlur then existingBlur:Destroy() end
+
+    introBlur = Instance.new("BlurEffect")
+    introBlur.Name = "FictionDuelsIntroBlur"
+    introBlur.Size = 0
+    introBlur.Parent = Lighting
+    tn(introBlur, 0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {Size = 22}):Play()
+
+    local bgGrad = Instance.new("Frame", gui)
+    bgGrad.Size = UDim2.new(1, 0, 1, 0)
+    bgGrad.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    bgGrad.BackgroundTransparency = 1
+    bgGrad.BorderSizePixel = 0
+    bgGrad.Active = false -- never blocks clicks or movement, purely cosmetic
+    bgGrad.ZIndex = 1
+    tn(bgGrad, 0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {BackgroundTransparency = 0.55}):Play()
+
+    local bgGradEffect = Instance.new("UIGradient", bgGrad)
+    bgGradEffect.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(10, 10, 15)),
+        ColorSequenceKeypoint.new(0.33, Color3.fromRGB(5, 5, 10)),
+        ColorSequenceKeypoint.new(0.66, Color3.fromRGB(15, 15, 20)),
+        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(8, 8, 12)),
+    })
+    bgGradEffect.Rotation = 0
+    
+    task.spawn(function()
+        local breathT = 0
+        while gui and gui.Parent and introActive do
+            task.wait()
+            breathT = breathT + 0.01
+            if bgGradEffect and bgGradEffect.Parent then
+                bgGradEffect.Rotation = (bgGradEffect.Rotation + 0.15) % 360
+            end
+            -- gentle breathing on the blur strength so it doesn't feel static
+            if introBlur and introBlur.Parent then
+                introBlur.Size = 22 + math.sin(breathT) * 2
+            end
+        end
+    end)
+
+    -- BREATHING GLOW OVERLAY
+    local glowOverlay = Instance.new("Frame", gui)
+    glowOverlay.Size = UDim2.new(1, 0, 1, 0)
+    glowOverlay.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    glowOverlay.BackgroundTransparency = 0.98
+    glowOverlay.BorderSizePixel = 0
+    glowOverlay.ZIndex = 2
+    
+    task.spawn(function()
+        local breath = 0
+        while gui and gui.Parent and introActive do
+            task.wait()
+            breath = breath + 0.02
+            local pulse = 0.95 + math.sin(breath) * 0.03
+            glowOverlay.BackgroundTransparency = pulse
+        end
+    end)
+
+    -- ROTATING SILVER RING (moved further up)
+    local ringContainer = Instance.new("Frame", gui)
+    ringContainer.Size = UDim2.new(0, 160, 0, 160)
+    ringContainer.AnchorPoint = Vector2.new(0.5, 0.5)
+    ringContainer.Position = UDim2.new(0.5, 0, 0.25, 0)
+    ringContainer.BackgroundTransparency = 1
+    ringContainer.ZIndex = 3
+
+    local ring = Instance.new("Frame", ringContainer)
+    ring.Size = UDim2.new(1, 0, 1, 0)
+    ring.BackgroundTransparency = 1
+    ring.BorderSizePixel = 0
+    ring.ZIndex = 3
+    
+    local ringStroke = Instance.new("UIStroke", ring)
+    ringStroke.Thickness = 2
+    ringStroke.Color = Silver1
+    ringStroke.Transparency = 0.7
+    ringStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    
+    local ringGrad = Instance.new("UIGradient", ringStroke)
+    ringGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0.00, Silver1),
+        ColorSequenceKeypoint.new(0.25, Silver4),
+        ColorSequenceKeypoint.new(0.50, Silver1),
+        ColorSequenceKeypoint.new(0.75, Silver4),
+        ColorSequenceKeypoint.new(1.00, Silver1),
+    })
+    ringGrad.Rotation = 0
+    
+    task.spawn(function()
+        while gui and gui.Parent and introActive do
+            task.wait()
+            if ring then
+                ring.Rotation = (ring.Rotation + 1.5) % 360
+            end
+            if ringGrad and ringGrad.Parent then
+                ringGrad.Rotation = (ringGrad.Rotation + 1) % 360
+            end
+        end
+    end)
+
+    -- IMAGE CONTAINER - Smaller, positioned above text
+    local imageContainer = Instance.new("Frame", ringContainer)
+    imageContainer.Size = UDim2.new(0, 70, 0, 70)
+    imageContainer.AnchorPoint = Vector2.new(0.5, 0.5)
+    imageContainer.Position = UDim2.new(0.5, 0, 0.5, 0)
+    imageContainer.BackgroundTransparency = 1
+    imageContainer.BorderSizePixel = 0
+    imageContainer.ClipsDescendants = true
+    imageContainer.ZIndex = 5
+    Instance.new("UICorner", imageContainer).CornerRadius = UDim.new(0, 16)
+
+    imageContainer.Size = UDim2.new(0, 14, 0, 14)
+    
+    local imageStroke = Instance.new("UIStroke", imageContainer)
+    imageStroke.Thickness = 1.5
+    imageStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    imageStroke.Color = Silver1
+    imageStroke.Transparency = 0.5
+
+    local strokeGrad = Instance.new("UIGradient", imageStroke)
+    strokeGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0.00, Silver1),
+        ColorSequenceKeypoint.new(0.25, Silver3),
+        ColorSequenceKeypoint.new(0.50, Silver1),
+        ColorSequenceKeypoint.new(0.75, Silver3),
+        ColorSequenceKeypoint.new(1.00, Silver1),
+    })
+    strokeGrad.Rotation = 0
+
+    task.spawn(function()
+        while gui and gui.Parent and introActive do
+            task.wait()
+            if strokeGrad and strokeGrad.Parent then
+                strokeGrad.Rotation = (strokeGrad.Rotation + 2) % 360
+            end
+        end
+    end)
+
+    local li = Instance.new("ImageLabel", imageContainer)
+    li.Image = LID
+    li.Size = UDim2.new(1, -6, 1, -6)
+    li.Position = UDim2.new(0, 3, 0, 3)
+    li.BackgroundTransparency = 1
+    li.ImageTransparency = 1
+    li.ScaleType = Enum.ScaleType.Crop
+    li.ZIndex = 6
+    Instance.new("UICorner", li).CornerRadius = UDim.new(0, 12)
+
+    -- FLOATING SILVER PARTICLES
+    local particleContainer = Instance.new("Frame", gui)
+    particleContainer.Size = UDim2.new(1, 0, 1, 0)
+    particleContainer.BackgroundTransparency = 1
+    particleContainer.ZIndex = 4
+
+    local particles = {}
+    for i = 1, 35 do
+        local dot = Instance.new("Frame", particleContainer)
+        local size = math.random(2, 5)
+        dot.Size = UDim2.new(0, size, 0, size)
+        dot.Position = UDim2.new(math.random(), 0, math.random(), 0)
+        dot.BackgroundColor3 = Silver1
+        dot.BackgroundTransparency = 0.3 + math.random() * 0.5
+        dot.BorderSizePixel = 0
+        dot.ZIndex = 4
+        Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+        table.insert(particles, {
+            frame = dot,
+            speedX = (math.random() - 0.5) * 0.002,
+            speedY = (math.random() - 0.5) * 0.002,
+            floatSpeed = 0.5 + math.random() * 0.5,
+            phase = math.random() * math.pi * 2,
+        })
+    end
+
+    task.spawn(function()
+        local t = 0
+        while gui and gui.Parent and introActive do
+            task.wait()
+            t = t + 0.05
+            for _, p in ipairs(particles) do
+                if p.frame and p.frame.Parent then
+                    local newX = p.frame.Position.X.Scale + p.speedX + math.sin(t * p.floatSpeed + p.phase) * 0.001
+                    local newY = p.frame.Position.Y.Scale + p.speedY + math.cos(t * p.floatSpeed + p.phase) * 0.001
+                    if newX > 1 then newX = 0 end
+                    if newX < 0 then newX = 1 end
+                    if newY > 1 then newY = 0 end
+                    if newY < 0 then newY = 1 end
+                    p.frame.Position = UDim2.new(newX, 0, newY, 0)
+                end
+            end
+        end
+    end)
+
+    -- CIRCULAR LOADING RING (smaller, positioned below text)
+    local loadingRing = Instance.new("Frame", gui)
+    loadingRing.Size = UDim2.new(0, 45, 0, 45)
+    loadingRing.AnchorPoint = Vector2.new(0.5, 0.5)
+    loadingRing.Position = UDim2.new(0.5, 0, 0.78, 0)
+    loadingRing.BackgroundTransparency = 1
+    loadingRing.ZIndex = 5
+
+    local ringArc = Instance.new("Frame", loadingRing)
+    ringArc.Size = UDim2.new(1, 0, 1, 0)
+    ringArc.BackgroundTransparency = 1
+    ringArc.BorderSizePixel = 0
+    ringArc.Rotation = -90
+    ringArc.ZIndex = 5
+
+    local arcStroke = Instance.new("UIStroke", ringArc)
+    arcStroke.Thickness = 2.5
+    arcStroke.Color = Silver2
+    arcStroke.Transparency = 0.8
+    arcStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    
+    local arcGrad = Instance.new("UIGradient", arcStroke)
+    arcGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0.00, Silver1),
+        ColorSequenceKeypoint.new(0.50, Silver3),
+        ColorSequenceKeypoint.new(1.00, Silver1),
+    })
+    arcGrad.Rotation = 0
+    arcGrad.Offset = Vector2.new(-0.5, 0)
+
+    -- Circular progress text (smaller)
+    local progressText = Instance.new("TextLabel", gui)
+    progressText.Size = UDim2.new(0, 60, 0, 20)
+    progressText.AnchorPoint = Vector2.new(0.5, 0.5)
+    progressText.Position = UDim2.new(0.5, 0, 0.86, 0)
+    progressText.BackgroundTransparency = 1
+    progressText.Text = "0%"
+    progressText.TextColor3 = Silver2
+    progressText.Font = Enum.Font.GothamMedium
+    progressText.TextSize = 12
+    progressText.ZIndex = 5
+
+    -- METALLIC SHIMMER ON TEXT
+    local function bw(word, yp, tc, sz, sp)
+        local co = Instance.new("Frame", gui)
+        co.Size = UDim2.new(1, 0, 0, sz + 10)
+        co.Position = UDim2.new(0, 0, yp, 0)
+        co.BackgroundTransparency = 1
+        co.ZIndex = 5
+
+        local lo = Instance.new("UIListLayout", co)
+        lo.FillDirection = Enum.FillDirection.Horizontal
+        lo.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        lo.VerticalAlignment = Enum.VerticalAlignment.Center
+        lo.Padding = UDim.new(0, sp or 2)
+        lo.SortOrder = Enum.SortOrder.LayoutOrder
+
+        local le = {}
+        for i = 1, #word do
+            local ch = word:sub(i, i)
+            local lb = Instance.new("TextLabel", co)
+            lb.LayoutOrder = i
+            lb.Size = UDim2.new(0, sz * 0.65, 0, sz)
+            lb.BackgroundTransparency = 1
+            lb.Text = ch
+            lb.TextColor3 = tc
+            lb.Font = Enum.Font.GothamBlack
+            lb.TextScaled = true
+            lb.TextTransparency = 1
+            lb.ZIndex = 5
+
+            local grad = Instance.new("UIGradient", lb)
+            grad.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 255, 255)),
+                ColorSequenceKeypoint.new(0.20, Color3.fromRGB(220, 220, 220)),
+                ColorSequenceKeypoint.new(0.45, Color3.fromRGB(180, 180, 180)),
+                ColorSequenceKeypoint.new(0.65, Color3.fromRGB(220, 220, 220)),
+                ColorSequenceKeypoint.new(0.85, Color3.fromRGB(180, 180, 180)),
+                ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 255, 255)),
+            })
+            grad.Rotation = 45
+            grad.Offset = Vector2.new(-0.8, 0)
+
+            local ar = Instance.new("UIAspectRatioConstraint", lb)
+            ar.AspectRatio = 0.6
+
+            le[i] = lb
+        end
+        return co, le
+    end
+
+    local fc, fl = bw("FICTION", 0.34, Silver1, 55, 0)
+    local dc, dl = bw("DUELS",   0.46, Silver2, 55, 0)
+
+    -- Animate metallic shimmer
+    task.spawn(function()
+        while gui and gui.Parent and introActive do
+            task.wait(0.03)
+            for _, lt in ipairs(fl) do
+                local g = lt:FindFirstChildOfClass("UIGradient")
+                if g then
+                    g.Offset = Vector2.new((g.Offset.X + 0.008) % 1.5 - 0.5, 0)
+                end
+            end
+            for _, lt in ipairs(dl) do
+                local g = lt:FindFirstChildOfClass("UIGradient")
+                if g then
+                    g.Offset = Vector2.new((g.Offset.X + 0.008) % 1.5 - 0.5, 0)
+                end
+            end
+        end
+    end)
+
+    -- Play intro sound
+    local introSound
+    task.spawn(function()
+        pcall(function()
+            introSound = Instance.new("Sound")
+            introSound.SoundId = "rbxassetid://" .. INTRO_SOUND_ID
+            introSound.Volume = 0.7
+            introSound.Parent = gui
+            introSound:Play()
+        end)
+    end)
+
+    -- ============================================================
+    -- ANIMATION SEQUENCE (FASTER)
+    -- ============================================================
+
+    -- CAMERA SHAKE (subtle, shorter)
+    task.spawn(function()
+        local shake = 0
+        while gui and gui.Parent and introActive and shake < 20 do
+            task.wait(0.016)
+            shake = shake + 1
+            if shake < 12 then
+                local intensity = 1.5 * (1 - shake/12)
+                ringContainer.Position = UDim2.new(
+                    0.5 + (math.random() - 0.5) * intensity * 0.001,
+                    (math.random() - 0.5) * intensity * 0.5,
+                    0.25 + (math.random() - 0.5) * intensity * 0.001,
+                    (math.random() - 0.5) * intensity * 0.5
+                )
+            else
+                ringContainer.Position = UDim2.new(0.5, 0, 0.25, 0)
+            end
+        end
+    end)
+
+    -- Cinematic logo scale: 0.2 -> 1.15 -> 1.0 (faster)
+    task.delay(0.05, function()
+        tn(imageContainer, 0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out, {
+            Size = UDim2.new(0, 82, 0, 82)
+        }):Play()
+    end)
+    task.delay(0.7, function()
+        tn(imageContainer, 0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out, {
+            Size = UDim2.new(0, 70, 0, 70)
+        }):Play()
+    end)
+
+    -- Logo fade in
+    tn(li, 0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, {ImageTransparency = 0}):Play()
+    tn(imageStroke, 0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, {Transparency = 0.2}):Play()
+
+    -- FICTION letter cascade (faster)
+    task.delay(0.15, function()
+        for i, lt in ipairs(fl) do
+            task.delay((i - 1) * 0.025, function()
+                lt.Position = UDim2.new(0, 0, 0.3, 0)
+                tn(lt, 0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out,
+                    {TextTransparency = 0, Position = UDim2.new(0, 0, 0, 0)}):Play()
+            end)
+        end
+    end)
+
+    -- DUELS letter cascade (faster)
+    task.delay(0.35, function()
+        for i, lt in ipairs(dl) do
+            task.delay((i - 1) * 0.025, function()
+                lt.Position = UDim2.new(0, 0, -0.3, 0)
+                tn(lt, 0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out,
+                    {TextTransparency = 0.1, Position = UDim2.new(0, 0, 0, 0)}):Play()
+            end)
+        end
+    end)
+
+    -- Circular loading ring animation (faster)
+    task.delay(0.6, function()
+        local duration = 1.8
+        local steps = 40
+        local startTime = tick()
+        task.spawn(function()
+            while gui and gui.Parent and introActive do
+                local elapsed = tick() - startTime
+                local progress = math.min(elapsed / duration, 1)
+                local angle = progress * 360
+                ringArc.Rotation = -90 + angle
+                progressText.Text = math.floor(progress * 100) .. "%"
+                arcStroke.Transparency = 0.2 + (1 - progress) * 0.6
+                if progress >= 1 then break end
+                task.wait(0.04)
+            end
+            progressText.Text = "100%"
+            arcStroke.Transparency = 0.2
+        end)
+    end)
+
+    -- SPARK BURST at 100% (faster)
+    task.delay(2.5, function()
+        for i = 1, 25 do
+            local spark = Instance.new("Frame", gui)
+            local size = math.random(3, 7)
+            spark.Size = UDim2.new(0, size, 0, size)
+            spark.Position = UDim2.new(0.5 + (math.random() - 0.5) * 0.03, 0, 0.78 + (math.random() - 0.5) * 0.03, 0)
+            spark.BackgroundColor3 = Silver1
+            spark.BackgroundTransparency = 0.2
+            spark.BorderSizePixel = 0
+            spark.ZIndex = 10
+            Instance.new("UICorner", spark).CornerRadius = UDim.new(1, 0)
+            
+            local targetX = 0.5 + (math.random() - 0.5) * 0.5
+            local targetY = 0.78 + (math.random() - 0.5) * 0.5
+            local dur = 0.2 + math.random() * 0.2
+            
+            tn(spark, dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
+                Position = UDim2.new(targetX, 0, targetY, 0),
+                BackgroundTransparency = 1,
+                Size = UDim2.new(0, 0, 0, 0)
+            }):Play()
+            task.delay(dur, function() pcall(function() spark:Destroy() end) end)
+        end
+    end)
+
+    -- Cinematic fade-out (faster)
+    task.delay(2.8, function()
+        if not introActive then return end
+        local ot = 0.4
+        for _, lt in ipairs(fl) do tn(lt, ot, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {TextTransparency = 1}):Play() end
+        for _, lt in ipairs(dl) do tn(lt, ot, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {TextTransparency = 1}):Play() end
+        tn(li, ot, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {ImageTransparency = 1}):Play()
+        tn(imageStroke, ot, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {Transparency = 1}):Play()
+        tn(ring, ot, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {BackgroundTransparency = 1}):Play()
+        tn(ringStroke, ot, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {Transparency = 1}):Play()
+        tn(loadingRing, ot, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {BackgroundTransparency = 1}):Play()
+        tn(progressText, ot, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {TextTransparency = 1}):Play()
+        tn(bgGrad, ot, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {BackgroundTransparency = 1}):Play()
+        tn(glowOverlay, ot, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {BackgroundTransparency = 1}):Play()
+        tn(skipBtn, ot, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {BackgroundTransparency = 1, TextTransparency = 1}):Play()
+        tn(skipStroke, ot, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {Transparency = 1}):Play()
+        tn(skipArrow, ot, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {TextTransparency = 1}):Play()
+        if introBlur and introBlur.Parent then
+            tn(introBlur, ot + 0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {Size = 0}):Play()
+        end
+        for _, p in ipairs(particles) do
+            if p.frame then
+                tn(p.frame, ot, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {BackgroundTransparency = 1}):Play()
+            end
+        end
+    end)
+
+    -- Final cleanup
+    task.delay(D + 0.5, function()
+        if not introActive then return end
+        uf()
+        pcall(function()
+            if introBlur and introBlur.Parent then introBlur:Destroy() end
+        end)
+        if gui and gui.Parent then gui:Destroy() end
+    end)
+end
+
+if playIntroEnabled then
+    playIntroAnimation()
+end
