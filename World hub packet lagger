@@ -1,0 +1,1161 @@
+-- Clean by Prince Bot
+
+print("[M10RU] Packet Lagger loading ...")
+
+local Players       = game:GetService("Players")
+local UIS           = game:GetService("UserInputService")
+local TweenService  = game:GetService("TweenService")
+local RunService    = game:GetService("RunService")
+local RS            = game:GetService("ReplicatedStorage")
+local HttpService   = game:GetService("HttpService")
+
+local LP        = Players.LocalPlayer
+local playerGui = LP:WaitForChild("PlayerGui")
+
+local CONFIG_FILE = "M10RU_PacketLagger_Config.json"
+
+local ACCENT     = Color3.fromRGB(40, 130, 255)
+local ACCENT_DIM = Color3.fromRGB(25, 90, 200)
+local PANEL_BG   = Color3.fromRGB(10, 10, 12)
+local PANEL_TOP  = Color3.fromRGB(22, 22, 26)
+local PANEL_BOT  = Color3.fromRGB(8, 8, 10)
+local INPUT_BG   = Color3.fromRGB(24, 24, 28)
+local INPUT_BG_2 = Color3.fromRGB(18, 18, 22)
+local DIM        = Color3.fromRGB(140, 140, 150)
+local DARK_TEXT  = Color3.fromRGB(12, 12, 14)
+local WHITE      = Color3.fromRGB(245, 245, 248)
+
+local DEFAULT_CFG = {
+    power      = 10000,
+    keybind    = "M",
+    locked     = false,
+    scale      = 1.0,
+    mainPos    = nil,
+    settingsOpen = false,
+}
+
+local cfg = {}
+for k, v in pairs(DEFAULT_CFG) do cfg[k] = v end
+
+do
+    if readfile and isfile and isfile(CONFIG_FILE) then
+        local ok, data = pcall(function() return HttpService:JSONDecode(readfile(CONFIG_FILE)) end)
+        if ok and type(data) == "table" then
+            for k, v in pairs(data) do cfg[k] = v end
+        end
+    end
+    cfg.power = tonumber(cfg.power) or DEFAULT_CFG.power
+    cfg.power = math.clamp(math.floor(cfg.power), 10000, 1000000)
+    cfg.scale = math.clamp(tonumber(cfg.scale) or 1, 0.55, 1.9)
+    if type(cfg.keybind) ~= "string" or cfg.keybind == "" then cfg.keybind = "M" end
+    cfg.locked = cfg.locked == true
+    cfg.settingsOpen = cfg.settingsOpen == true
+end
+
+local function tw(inst, props, dur, style, dir)
+    TweenService:Create(inst, TweenInfo.new(dur or 0.16, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props):Play()
+end
+
+local function corner(o, r)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r or 10)
+    c.Parent = o
+    return c
+end
+
+local function cornerFull(o)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(1, 0)
+    c.Parent = o
+    return c
+end
+
+local function stroke(o, col, th, tr)
+    local s = Instance.new("UIStroke")
+    s.Color = col or ACCENT
+    s.Thickness = th or 1.2
+    s.Transparency = tr or 0
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    s.Parent = o
+    return s
+end
+
+local function makeGear(parent, px, color)
+    local holder = Instance.new("Frame")
+    holder.Name = "GearIcon"
+    holder.AnchorPoint = Vector2.new(0.5, 0.5)
+    holder.Position = UDim2.fromScale(0.5, 0.5)
+    holder.Size = UDim2.fromOffset(px, px)
+    holder.BackgroundTransparency = 1
+    holder.ZIndex = (parent.ZIndex or 1) + 1
+    holder.Parent = parent
+
+    local r = px * 0.30
+    for i = 0, 7 do
+        local a = math.rad(i * 45)
+        local tooth = Instance.new("Frame")
+        tooth.Size = UDim2.fromOffset(math.max(2, px * 0.15), math.max(3, px * 0.30))
+        tooth.AnchorPoint = Vector2.new(0.5, 0.5)
+        tooth.Position = UDim2.new(0.5, math.cos(a) * r, 0.5, math.sin(a) * r)
+        tooth.Rotation = math.deg(a) + 90
+        tooth.BackgroundColor3 = color
+        tooth.BorderSizePixel = 0
+        tooth.ZIndex = holder.ZIndex
+        tooth.Parent = holder
+        corner(tooth, 1)
+    end
+
+    local ring = Instance.new("Frame")
+    ring.Size = UDim2.fromScale(0.62, 0.62)
+    ring.AnchorPoint = Vector2.new(0.5, 0.5)
+    ring.Position = UDim2.fromScale(0.5, 0.5)
+    ring.BackgroundColor3 = color
+    ring.BorderSizePixel = 0
+    ring.ZIndex = holder.ZIndex
+    ring.Parent = holder
+    cornerFull(ring)
+
+    local hole = Instance.new("Frame")
+    hole.Size = UDim2.fromScale(0.44, 0.44)
+    hole.AnchorPoint = Vector2.new(0.5, 0.5)
+    hole.Position = UDim2.fromScale(0.5, 0.5)
+    hole.BackgroundColor3 = INPUT_BG_2
+    hole.BorderSizePixel = 0
+    hole.ZIndex = ring.ZIndex + 1
+    hole.Parent = ring
+    cornerFull(hole)
+
+    return holder, ring, hole
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "M10RU_PacketLagger"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.IgnoreGuiInset = true
+gui.Parent = playerGui
+
+local MAIN_W, MAIN_H = 400, 196
+local SET_H = 270
+
+local Root = Instance.new("Frame")
+Root.Name = "Root"
+Root.Size = UDim2.fromOffset(MAIN_W, MAIN_H)
+Root.Position = UDim2.new(0.5, 0, 0.5, 0)
+Root.AnchorPoint = Vector2.new(0.5, 0.5)
+Root.BackgroundTransparency = 1
+Root.BorderSizePixel = 0
+Root.Active = true
+Root.ZIndex = 50
+Root.ClipsDescendants = false
+Root.Parent = gui
+
+local MainScale = Instance.new("UIScale")
+MainScale.Scale = cfg.scale
+MainScale.Parent = Root
+
+local Main = Instance.new("Frame")
+Main.Name = "MainWindow"
+Main.Size = UDim2.fromOffset(MAIN_W, MAIN_H)
+Main.Position = UDim2.fromOffset(0, 0)
+Main.BackgroundColor3 = PANEL_BG
+Main.BorderSizePixel = 0
+Main.ClipsDescendants = true
+Main.Active = true
+Main.ZIndex = 50
+Main.Parent = Root
+corner(Main, 18)
+
+local mainGrad = Instance.new("UIGradient")
+mainGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, PANEL_TOP),
+    ColorSequenceKeypoint.new(1, PANEL_BOT),
+})
+mainGrad.Rotation = 90
+mainGrad.Parent = Main
+
+local mainStroke = stroke(Main, ACCENT, 1.8, 0.08)
+
+local Logo = Instance.new("TextLabel")
+Logo.Name = "Logo"
+Logo.AnchorPoint = Vector2.new(0.5, 0)
+Logo.Position = UDim2.new(0.5, 0, 0, 4)
+Logo.Size = UDim2.fromOffset(300, 95)
+Logo.BackgroundTransparency = 1
+Logo.Text = "WORLD HUB PACKET LAGGER"
+Logo.TextColor3 = Color3.fromRGB(255, 255, 255)
+Logo.TextScaled = true
+Logo.Font = Enum.Font.GothamBold
+Logo.Parent = Main
+
+local MainTitle = Instance.new("TextLabel")
+MainTitle.Name = "TitleLabel"
+MainTitle.Size = UDim2.new(1, 0, 0, 20)
+MainTitle.Position = UDim2.new(0, 0, 0, 24)
+MainTitle.BackgroundTransparency = 1
+MainTitle.Text = "M10RU"
+MainTitle.Font = Enum.Font.GothamBlack
+MainTitle.TextSize = 18
+MainTitle.TextColor3 = ACCENT
+MainTitle.TextXAlignment = Enum.TextXAlignment.Center
+MainTitle.ZIndex = 53
+MainTitle.Visible = false
+MainTitle.Parent = Main
+
+local MainSub = Instance.new("TextLabel")
+MainSub.Name = "SubLabel"
+MainSub.Size = UDim2.new(1, 0, 0, 12)
+MainSub.Position = UDim2.new(0, 0, 0, 46)
+MainSub.BackgroundTransparency = 1
+MainSub.Text = "Packet Lagger"
+MainSub.Font = Enum.Font.Gotham
+MainSub.TextSize = 10
+MainSub.TextColor3 = DIM
+MainSub.TextXAlignment = Enum.TextXAlignment.Center
+MainSub.ZIndex = 53
+MainSub.Visible = false
+MainSub.Parent = Main
+
+local GearBtn = Instance.new("TextButton")
+GearBtn.Name = "GearBtn"
+GearBtn.Size = UDim2.fromOffset(26, 26)
+GearBtn.Position = UDim2.new(1, -38, 0, 10)
+GearBtn.BackgroundColor3 = INPUT_BG_2
+GearBtn.Text = ""
+GearBtn.AutoButtonColor = false
+GearBtn.ZIndex = 56
+GearBtn.Parent = Main
+corner(GearBtn, 8)
+stroke(GearBtn, ACCENT, 1.2, 0.25)
+makeGear(GearBtn, 16, ACCENT)
+
+local function refreshLock()
+end
+
+local PowerBtn = Instance.new("TextButton")
+PowerBtn.Name = "PowerBtn"
+PowerBtn.Size = UDim2.new(1, -28, 0, 54)
+PowerBtn.Position = UDim2.new(0.5, 0, 0, 108)
+PowerBtn.AnchorPoint = Vector2.new(0.5, 0)
+PowerBtn.BackgroundColor3 = INPUT_BG
+PowerBtn.Text = "Activate"
+PowerBtn.Font = Enum.Font.GothamBlack
+PowerBtn.TextSize = 26
+PowerBtn.TextColor3 = ACCENT
+PowerBtn.AutoButtonColor = false
+PowerBtn.BorderSizePixel = 0
+PowerBtn.ZIndex = 55
+PowerBtn.Parent = Main
+corner(PowerBtn, 16)
+local powerStroke = stroke(PowerBtn, ACCENT, 2, 0.25)
+
+local InfoLbl = Instance.new("TextLabel")
+InfoLbl.Name = "InfoLabel"
+InfoLbl.Size = UDim2.new(1, -28, 0, 16)
+InfoLbl.Position = UDim2.new(0, 14, 0, 170)
+InfoLbl.BackgroundTransparency = 1
+InfoLbl.Text = "power 10000  ·  key M"
+InfoLbl.Font = Enum.Font.Gotham
+InfoLbl.TextSize = 9
+InfoLbl.TextColor3 = DIM
+InfoLbl.TextXAlignment = Enum.TextXAlignment.Left
+InfoLbl.TextYAlignment = Enum.TextYAlignment.Center
+InfoLbl.ZIndex = 55
+InfoLbl.Parent = Main
+
+local Settings = Instance.new("Frame")
+Settings.Name = "SettingsPanel"
+Settings.Size = UDim2.fromOffset(MAIN_W, SET_H)
+Settings.Position = UDim2.fromOffset(0, MAIN_H - 2)
+Settings.BackgroundColor3 = PANEL_BG
+Settings.BorderSizePixel = 0
+Settings.ClipsDescendants = true
+Settings.Visible = false
+Settings.ZIndex = 49
+Settings.Parent = Root
+corner(Settings, 16)
+
+local setGrad = Instance.new("UIGradient")
+setGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, PANEL_TOP),
+    ColorSequenceKeypoint.new(1, PANEL_BOT),
+})
+setGrad.Rotation = 90
+setGrad.Parent = Settings
+
+local settingsStroke = stroke(Settings, ACCENT, 1.6, 0.1)
+
+local SetTitle = Instance.new("TextLabel")
+SetTitle.Size = UDim2.new(1, -44, 0, 22)
+SetTitle.Position = UDim2.fromOffset(14, 10)
+SetTitle.BackgroundTransparency = 1
+SetTitle.Text = "Settings"
+SetTitle.Font = Enum.Font.GothamBold
+SetTitle.TextSize = 14
+SetTitle.TextColor3 = ACCENT
+SetTitle.TextXAlignment = Enum.TextXAlignment.Left
+SetTitle.ZIndex = 63
+SetTitle.Parent = Settings
+
+local SetClose = Instance.new("TextButton")
+SetClose.Name = "SetClose"
+SetClose.Size = UDim2.fromOffset(22, 22)
+SetClose.Position = UDim2.new(1, -34, 0, 10)
+SetClose.BackgroundColor3 = INPUT_BG_2
+SetClose.Text = "X"
+SetClose.TextColor3 = ACCENT
+SetClose.Font = Enum.Font.GothamBlack
+SetClose.TextSize = 11
+SetClose.AutoButtonColor = false
+SetClose.BorderSizePixel = 0
+SetClose.ZIndex = 63
+SetClose.Parent = Settings
+corner(SetClose, 7)
+stroke(SetClose, ACCENT, 1, 0.3)
+
+local function smallLabel(parent, text, x, y, w, align)
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.fromOffset(w or 100, 14)
+    l.Position = UDim2.fromOffset(x, y)
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.Font = Enum.Font.Gotham
+    l.TextSize = 10
+    l.TextColor3 = DIM
+    l.TextXAlignment = align or Enum.TextXAlignment.Left
+    l.ZIndex = 63
+    l.Parent = parent
+    return l
+end
+
+smallLabel(Settings, "Packet Power", 14, 36, 110)
+smallLabel(Settings, "Keybind", 148, 36, 80)
+smallLabel(Settings, "UI Scale", 290, 36, 80)
+
+local PowerBox = Instance.new("TextBox")
+PowerBox.Name = "PowerBox"
+PowerBox.Size = UDim2.fromOffset(110, 28)
+PowerBox.Position = UDim2.fromOffset(14, 54)
+PowerBox.BackgroundColor3 = INPUT_BG_2
+PowerBox.BorderSizePixel = 0
+PowerBox.Text = tostring(cfg.power)
+PowerBox.TextColor3 = WHITE
+PowerBox.Font = Enum.Font.GothamBold
+PowerBox.TextSize = 13
+PowerBox.ClearTextOnFocus = false
+PowerBox.ZIndex = 63
+PowerBox.Parent = Settings
+corner(PowerBox, 7)
+stroke(PowerBox, ACCENT, 1.1, 0.25)
+
+local function makeAdjBtn(parent, text, x, y)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.fromOffset(28, 28)
+    b.Position = UDim2.fromOffset(x, y)
+    b.BackgroundColor3 = INPUT_BG_2
+    b.Text = text
+    b.TextColor3 = ACCENT
+    b.Font = Enum.Font.GothamBlack
+    b.TextSize = 16
+    b.AutoButtonColor = false
+    b.BorderSizePixel = 0
+    b.ZIndex = 63
+    b.Parent = parent
+    corner(b, 7)
+    stroke(b, ACCENT, 1.1, 0.25)
+    return b
+end
+
+local PowerMinus = makeAdjBtn(Settings, "-", 14, 88)
+local PowerPlus  = makeAdjBtn(Settings, "+", 48, 88)
+
+local KeyBtn = Instance.new("TextButton")
+KeyBtn.Name = "KeyBtn"
+KeyBtn.Size = UDim2.fromOffset(110, 28)
+KeyBtn.Position = UDim2.fromOffset(148, 54)
+KeyBtn.BackgroundColor3 = INPUT_BG_2
+KeyBtn.Text = cfg.keybind
+KeyBtn.TextColor3 = WHITE
+KeyBtn.Font = Enum.Font.GothamBold
+KeyBtn.TextSize = 13
+KeyBtn.AutoButtonColor = false
+KeyBtn.BorderSizePixel = 0
+KeyBtn.ZIndex = 63
+KeyBtn.Parent = Settings
+corner(KeyBtn, 7)
+stroke(KeyBtn, ACCENT, 1.1, 0.25)
+
+local SizeLbl = Instance.new("TextLabel")
+SizeLbl.Name = "SizeLabel"
+SizeLbl.Size = UDim2.fromOffset(80, 28)
+SizeLbl.Position = UDim2.fromOffset(290, 54)
+SizeLbl.BackgroundTransparency = 1
+SizeLbl.Text = "size 100%"
+SizeLbl.Font = Enum.Font.Gotham
+SizeLbl.TextSize = 11
+SizeLbl.TextColor3 = DIM
+SizeLbl.TextXAlignment = Enum.TextXAlignment.Left
+SizeLbl.TextYAlignment = Enum.TextYAlignment.Center
+SizeLbl.ZIndex = 63
+SizeLbl.Parent = Settings
+
+local SetZoomOut = makeAdjBtn(Settings, "-", 290, 88)
+local SetZoomIn  = makeAdjBtn(Settings, "+", 324, 88)
+
+local divider = Instance.new("Frame")
+divider.Name = "WalkDivider"
+divider.Size = UDim2.new(1, -28, 0, 1)
+divider.Position = UDim2.fromOffset(14, 126)
+divider.BackgroundColor3 = ACCENT
+divider.BackgroundTransparency = 0.65
+divider.BorderSizePixel = 0
+divider.ZIndex = 63
+divider.Parent = Settings
+
+local walkStatus = smallLabel(Settings, "CFrame Walk  ·  OFF", 14, 134, 312)
+walkStatus.Name = "WalkStatus"
+walkStatus.Font = Enum.Font.GothamBold
+walkStatus.TextSize = 11
+walkStatus.TextColor3 = ACCENT
+
+smallLabel(Settings, "Studs", 14, 152, 90)
+smallLabel(Settings, "Delay", 112, 152, 90)
+smallLabel(Settings, "CFrame Key", 210, 152, 116)
+
+local function walkInput(name, x, width, text)
+    local box = Instance.new("TextBox")
+    box.Name = name
+    box.Size = UDim2.fromOffset(width, 28)
+    box.Position = UDim2.fromOffset(x, 168)
+    box.BackgroundColor3 = INPUT_BG_2
+    box.BorderSizePixel = 0
+    box.Text = text
+    box.TextColor3 = WHITE
+    box.Font = Enum.Font.GothamBold
+    box.TextSize = 12
+    box.ClearTextOnFocus = false
+    box.ZIndex = 63
+    box.Parent = Settings
+    corner(box, 7)
+    stroke(box, ACCENT, 1.1, 0.25)
+    return box
+end
+
+local function walkKeyButton(x, width, text)
+    local button = Instance.new("TextButton")
+    button.Name = "WalkKeybindButton"
+    button.Size = UDim2.fromOffset(width, 28)
+    button.Position = UDim2.fromOffset(x, 168)
+    button.BackgroundColor3 = INPUT_BG_2
+    button.BorderSizePixel = 0
+    button.Text = text
+    button.TextColor3 = WHITE
+    button.Font = Enum.Font.GothamBold
+    button.TextSize = (#text > 10) and 10 or 12
+    button.AutoButtonColor = false
+    button.ZIndex = 63
+    button.Parent = Settings
+    corner(button, 7)
+    stroke(button, ACCENT, 1.1, 0.25)
+    return button
+end
+
+local lagging         = false
+local lagThread       = nil
+local listeningForKey = false
+local intensity       = cfg.power
+local toggleKey       = Enum.KeyCode.M
+local toggleKeyName   = cfg.keybind
+local settingsOpen    = false
+
+local POWER_STEP = 5000
+local MIN_POWER, MAX_POWER = 10000, 1000000
+
+local function clampPower(v)
+    v = tonumber(v)
+    if not v then return intensity end
+    return math.clamp(math.floor(v), MIN_POWER, MAX_POWER)
+end
+
+local saveConfig
+
+local function updatePower()
+    intensity = clampPower(PowerBox.Text)
+    cfg.power = intensity
+    PowerBox.Text = tostring(intensity)
+    InfoLbl.Text = string.format("power %d  ·  key %s", intensity, toggleKeyName)
+end
+
+local function adjustPower(delta)
+    intensity = math.clamp(intensity + delta, MIN_POWER, MAX_POWER)
+    cfg.power = intensity
+    PowerBox.Text = tostring(intensity)
+    InfoLbl.Text = string.format("power %d  ·  key %s", intensity, toggleKeyName)
+    if saveConfig then saveConfig() end
+end
+
+local KEY_SHORT = {
+    ButtonA = "A", ButtonB = "B", ButtonX = "X", ButtonY = "Y",
+    ButtonL1 = "L1", ButtonR1 = "R1", ButtonL2 = "L2", ButtonR2 = "R2",
+    ButtonL3 = "L3", ButtonR3 = "R3",
+    ButtonSelect = "Select", ButtonStart = "Start",
+    DPadUp = "D-Up", DPadDown = "D-Down", DPadLeft = "D-Left", DPadRight = "D-Right",
+}
+
+local function keyLabel(name)
+    if type(name) ~= "string" or name == "" then return "M" end
+    return KEY_SHORT[name] or name
+end
+
+local function applyKeybind(name)
+    toggleKeyName = name or "M"
+    local ok, key = pcall(function() return Enum.KeyCode[toggleKeyName] end)
+    toggleKey = (ok and key) or Enum.KeyCode.M
+    cfg.keybind = toggleKeyName
+    local label = keyLabel(toggleKeyName)
+    KeyBtn.Text = label
+    KeyBtn.TextSize = (#label > 5) and 10 or 13
+    InfoLbl.Text = string.format("power %d  ·  key %s", intensity, label)
+end
+
+local function refreshSizeLabels()
+    SizeLbl.Text = string.format("size %d%%", math.floor((cfg.scale or 1) * 100 + 0.5))
+end
+
+local function clampToViewport(frame)
+    local cam = workspace.CurrentCamera
+    local vp = (cam and cam.ViewportSize) or Vector2.new(1280, 720)
+    local abs = frame.AbsolutePosition
+    local sz = frame.AbsoluteSize
+    local dx, dy = 0, 0
+    if abs.X < 6 then
+        dx = 6 - abs.X
+    elseif abs.X + sz.X > vp.X - 6 then
+        dx = (vp.X - 6) - (abs.X + sz.X)
+    end
+    if abs.Y < 6 then
+        dy = 6 - abs.Y
+    elseif abs.Y + sz.Y > vp.Y - 6 then
+        dy = (vp.Y - 6) - (abs.Y + sz.Y)
+    end
+    if dx ~= 0 or dy ~= 0 then
+        local p = frame.Position
+        frame.Position = UDim2.new(p.X.Scale, p.X.Offset + dx, p.Y.Scale, p.Y.Offset + dy)
+    end
+end
+
+local function updateScale(delta)
+    cfg.scale = math.clamp((cfg.scale or 1) + delta, 0.55, 1.9)
+    tw(MainScale, { Scale = cfg.scale }, 0.16, Enum.EasingStyle.Quad)
+    refreshSizeLabels()
+    clampToViewport(Root)
+    task.delay(0.2, function()
+        clampToViewport(Root)
+    end)
+    if saveConfig then saveConfig() end
+end
+
+local function setSettingsOpen(open)
+    settingsOpen = open == true
+    cfg.settingsOpen = settingsOpen
+    if settingsOpen then
+        Settings.Visible = true
+        Root.Size = UDim2.fromOffset(MAIN_W, MAIN_H + SET_H - 2)
+    else
+        Settings.Visible = false
+        Root.Size = UDim2.fromOffset(MAIN_W, MAIN_H)
+    end
+    clampToViewport(Root)
+    if saveConfig then saveConfig() end
+end
+
+local NET_INDEX_CANDIDATES = { 6, 230 }
+local Event
+local eventWatchActive = false
+
+local function pickEvent(net)
+    if not net then return nil end
+    local ok, children = pcall(function() return net:GetChildren() end)
+    if not ok or not children then return nil end
+    for _, index in ipairs(NET_INDEX_CANDIDATES) do
+        local candidate = children[index]
+        if candidate and candidate:IsA("RemoteEvent") then
+            return candidate
+        end
+    end
+    for _, child in ipairs(children) do
+        if child:IsA("RemoteEvent") then
+            return child
+        end
+    end
+    return nil
+end
+
+local function resolveEvent(waitForObjects)
+    if Event and Event.Parent then
+        return Event
+    end
+    local packages = RS:FindFirstChild("Packages")
+    if not packages and waitForObjects then
+        for _ = 1, 10 do
+            task.wait(0.5)
+            packages = RS:FindFirstChild("Packages")
+            if packages then break end
+        end
+    end
+    if not packages then return nil end
+    local net = packages:FindFirstChild("Net")
+    if not net and waitForObjects then
+        task.wait(5)
+        net = packages:FindFirstChild("Net")
+    end
+    if not net then return nil end
+    Event = pickEvent(net)
+    return Event
+end
+
+local function watchForEvent()
+    if eventWatchActive or (Event and Event.Parent) then return end
+    eventWatchActive = true
+    task.spawn(function()
+        for _ = 1, 20 do
+            if Event and Event.Parent then break end
+            resolveEvent(true)
+            if Event and Event.Parent then break end
+            task.wait(1)
+        end
+        eventWatchActive = false
+    end)
+end
+
+resolveEvent(false)
+watchForEvent()
+
+local function paintPowerBtn()
+    if lagging then
+        tw(PowerBtn, { BackgroundColor3 = ACCENT, TextColor3 = DARK_TEXT }, 0.16)
+        PowerBtn.Text = "Off"
+        powerStroke.Color = ACCENT
+        powerStroke.Transparency = 0.05
+    else
+        tw(PowerBtn, { BackgroundColor3 = INPUT_BG, TextColor3 = ACCENT }, 0.16)
+        PowerBtn.Text = "Activate"
+        powerStroke.Color = ACCENT
+        powerStroke.Transparency = 0.3
+    end
+end
+
+local function buildPacket(size)
+    return table.create(size, function() end)
+end
+
+local function startLagging()
+    if lagging then return end
+    updatePower()
+    if not (Event and Event.Parent) then
+        resolveEvent(false)
+    end
+    if not (Event and Event.Parent) then
+        watchForEvent()
+        InfoLbl.Text = "event not ready · try again"
+        return
+    end
+    lagging = true
+    paintPowerBtn()
+    local packet = buildPacket(intensity)
+    local packetSize = intensity
+    lagThread = task.spawn(function()
+        local remote = Event
+        while lagging do
+            if packetSize ~= intensity then
+                packet = buildPacket(intensity)
+                packetSize = intensity
+            end
+            if not (remote and remote.Parent) then
+                remote = resolveEvent(false) or remote
+            end
+            if remote then
+                for _ = 1, 3 do
+                    pcall(function()
+                        remote:FireServer(packet)
+                    end)
+                end
+            end
+            task.wait(0.01)
+        end
+    end)
+end
+
+local function stopLagging()
+    if not lagging then return end
+    lagging = false
+    if lagThread then
+        pcall(task.cancel, lagThread)
+        lagThread = nil
+    end
+    paintPowerBtn()
+end
+
+local function toggleLag()
+    if lagging then
+        stopLagging()
+    else
+        startLagging()
+    end
+end
+
+saveConfig = function()
+    pcall(function()
+        if not writefile then return end
+        writefile(CONFIG_FILE, HttpService:JSONEncode({
+            power        = cfg.power,
+            keybind      = cfg.keybind,
+            locked       = cfg.locked,
+            scale        = cfg.scale,
+            settingsOpen = settingsOpen,
+            mainPos      = {
+                Root.Position.X.Scale, Root.Position.X.Offset,
+                Root.Position.Y.Scale, Root.Position.Y.Offset,
+            },
+        }))
+    end)
+end
+
+local function restorePositions()
+    local data = cfg.mainPos
+    if type(data) == "table" and #data >= 4 then
+        Root.Position = UDim2.new(data[1], data[2], data[3], data[4])
+    end
+end
+
+GearBtn.MouseButton1Click:Connect(function()
+    setSettingsOpen(not settingsOpen)
+    if settingsOpen then updatePower() end
+end)
+
+SetClose.MouseButton1Click:Connect(function()
+    updatePower()
+    setSettingsOpen(false)
+    saveConfig()
+end)
+
+PowerBox.FocusLost:Connect(function()
+    updatePower()
+    saveConfig()
+end)
+
+PowerMinus.MouseButton1Click:Connect(function() adjustPower(-POWER_STEP) end)
+PowerPlus.MouseButton1Click:Connect(function() adjustPower(POWER_STEP) end)
+
+KeyBtn.MouseButton1Click:Connect(function()
+    if listeningForKey then return end
+    listeningForKey = true
+    KeyBtn.Text = "..."
+end)
+
+PowerBtn.MouseButton1Click:Connect(toggleLag)
+
+SetZoomIn.MouseButton1Click:Connect(function() updateScale(0.1) end)
+SetZoomOut.MouseButton1Click:Connect(function() updateScale(-0.1) end)
+
+local function isGamepadInput(input)
+    return tostring(input.UserInputType.Name):match("^Gamepad") ~= nil
+end
+
+UIS.InputBegan:Connect(function(input, gpe)
+    if listeningForKey then
+        local keyboard = (input.UserInputType == Enum.UserInputType.Keyboard)
+        local pad = isGamepadInput(input)
+        if (keyboard or pad) and input.KeyCode ~= Enum.KeyCode.Unknown then
+            listeningForKey = false
+            applyKeybind(input.KeyCode.Name)
+            saveConfig()
+        end
+        return
+    end
+    if gpe and not isGamepadInput(input) then return end
+    if input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode == toggleKey then
+        toggleLag()
+    end
+end)
+
+local dragState = nil
+
+local function addDragHandle(obj)
+    obj.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragState = { last = input.Position }
+        end
+    end)
+end
+
+addDragHandle(Main)
+addDragHandle(MainTitle)
+addDragHandle(MainSub)
+addDragHandle(InfoLbl)
+addDragHandle(Logo)
+
+UIS.InputChanged:Connect(function(input)
+    if not dragState then return end
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
+    local d = input.Position - dragState.last
+    dragState.last = input.Position
+    local p = Root.Position
+    Root.Position = UDim2.new(p.X.Scale, p.X.Offset + d.X, p.Y.Scale, p.Y.Offset + d.Y)
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if dragState then
+            dragState = nil
+            saveConfig()
+        end
+    end
+end)
+
+pcall(function()
+    local cam = workspace.CurrentCamera
+    if cam then
+        cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+            task.defer(function() clampToViewport(Root) end)
+        end)
+    end
+end)
+
+task.spawn(function()
+    while gui.Parent do
+        local t = tick()
+        local pulse = 0.5 + 0.5 * math.sin(t * 2.5)
+        mainStroke.Transparency = 0.06 + 0.12 * pulse
+        settingsStroke.Transparency = 0.08 + 0.14 * pulse
+        if lagging then
+            powerStroke.Transparency = 0.02 + 0.16 * pulse
+        end
+        task.wait(0.05)
+    end
+end)
+
+do
+    local WALK_CONFIG_FILE = "M10RU_CFrameWalk_Config.json"
+    local walkCfg = {
+        studs = 8,
+        delay = 0.1,
+        keybind = "RightShift",
+        withPacket = false,
+    }
+
+    if readfile and isfile and isfile(WALK_CONFIG_FILE) then
+        local ok, saved = pcall(function()
+            return HttpService:JSONDecode(readfile(WALK_CONFIG_FILE))
+        end)
+        if ok and type(saved) == "table" then
+            if saved.studs ~= nil then walkCfg.studs = saved.studs end
+            if saved.delay ~= nil then walkCfg.delay = saved.delay end
+            if saved.keybind ~= nil then walkCfg.keybind = saved.keybind end
+            if saved.withPacket ~= nil then walkCfg.withPacket = saved.withPacket == true end
+        end
+    end
+
+    walkCfg.studs = tonumber(walkCfg.studs)
+    if not (walkCfg.studs and walkCfg.studs > 0 and walkCfg.studs < math.huge) then
+        walkCfg.studs = 8
+    end
+    walkCfg.delay = tonumber(walkCfg.delay)
+    if not (walkCfg.delay and walkCfg.delay > 0 and walkCfg.delay < math.huge) then
+        walkCfg.delay = 0.1
+    end
+    if type(walkCfg.keybind) ~= "string" or walkCfg.keybind == "" then
+        walkCfg.keybind = "RightShift"
+    end
+
+    local function resolveWalkKey(name)
+        local ok, key = pcall(function() return Enum.KeyCode[name] end)
+        if ok and key and key ~= Enum.KeyCode.Unknown then
+            return key
+        end
+        return nil
+    end
+
+    local walkKey = resolveWalkKey(walkCfg.keybind)
+    if not walkKey then
+        walkCfg.keybind = "RightShift"
+        walkKey = Enum.KeyCode.RightShift
+    end
+
+    local function saveWalkSettings()
+        pcall(function()
+            if not writefile then return end
+            writefile(WALK_CONFIG_FILE, HttpService:JSONEncode({
+                studs = walkCfg.studs,
+                delay = walkCfg.delay,
+                keybind = walkCfg.keybind,
+                withPacket = walkCfg.withPacket,
+            }))
+        end)
+    end
+
+    local studsBox = walkInput("WalkStudsBox", 14, 90, tostring(walkCfg.studs))
+    local delayBox = walkInput("WalkDelayBox", 112, 90, tostring(walkCfg.delay))
+    local walkKeyBox = walkKeyButton(210, 116, walkCfg.keybind)
+
+    local function walkToggleButton(name, x, width)
+        local button = Instance.new("TextButton")
+        button.Name = name
+        button.Size = UDim2.fromOffset(width, 30)
+        button.Position = UDim2.fromOffset(x, 206)
+        button.BackgroundColor3 = INPUT_BG_2
+        button.BorderSizePixel = 0
+        button.Text = ""
+        button.TextColor3 = ACCENT
+        button.Font = Enum.Font.GothamBold
+        button.TextSize = 11
+        button.AutoButtonColor = false
+        button.ZIndex = 63
+        button.Parent = Settings
+        corner(button, 7)
+        stroke(button, ACCENT, 1.1, 0.25)
+        return button
+    end
+
+    local manualButton = walkToggleButton("WalkManualBtn", 14, 150)
+    local walkButton = walkToggleButton("WalkWithPacketBtn", 174, 152)
+
+    local walkActive = false
+    local walkStartedBy = nil
+    local walkRunId = 0
+    local savedHumanoid = nil
+    local savedWalkSpeed = nil
+
+    local function restoreWalkSpeed()
+        local hum, speed = savedHumanoid, savedWalkSpeed
+        savedHumanoid = nil
+        savedWalkSpeed = nil
+        if hum and hum.Parent and speed ~= nil and hum.WalkSpeed == 0 then
+            hum.WalkSpeed = speed
+        end
+    end
+
+    local walkCastParams = RaycastParams.new()
+    walkCastParams.FilterType = Enum.RaycastFilterType.Exclude
+    walkCastParams.RespectCanCollide = true
+    walkCastParams.IgnoreWater = true
+    local WALL_CLEARANCE = 0.05
+    local MAX_CAST_DISTANCE = 1000
+
+    local function supportRadius(frame, size, normal)
+        local n = frame:VectorToObjectSpace(normal)
+        return 0.5 * (math.abs(n.X) * size.X + math.abs(n.Y) * size.Y + math.abs(n.Z) * size.Z)
+    end
+
+    local function safeWalkDelta(character, root, direction)
+        local requested = direction * walkCfg.studs
+        local distance = requested.Magnitude
+        if distance <= 0 then return Vector3.new(0, 0, 0) end
+        local unit = requested / distance
+        distance = math.min(distance, MAX_CAST_DISTANCE)
+        local castDirection = unit * distance
+        local allowed = distance
+
+        walkCastParams.FilterDescendantsInstances = { character }
+        pcall(function() walkCastParams.CollisionGroup = root.CollisionGroup end)
+
+        local bodyParts = { root }
+        local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
+        local head = character:FindFirstChild("Head")
+        if torso and torso:IsA("BasePart") then bodyParts[#bodyParts + 1] = torso end
+        if head and head:IsA("BasePart") then bodyParts[#bodyParts + 1] = head end
+
+        for _, part in ipairs(bodyParts) do
+            local frame = part.CFrame
+            local fullSize = part.Size
+            local castSize = fullSize * 0.98
+            local hit = workspace:Blockcast(frame, castSize, castDirection, walkCastParams)
+            if hit then
+                local approach = math.max(0.001, -unit:Dot(hit.Normal))
+                local inset = supportRadius(frame, fullSize, hit.Normal) - supportRadius(frame, castSize, hit.Normal)
+                local safeDistance = hit.Distance - (inset + WALL_CLEARANCE) / approach
+                allowed = math.min(allowed, math.max(0, safeDistance))
+            end
+
+            local rayHit = workspace:Raycast(frame.Position, castDirection, walkCastParams)
+            if rayHit then
+                local approach = math.max(0.001, -unit:Dot(rayHit.Normal))
+                local clearance = supportRadius(frame, fullSize, rayHit.Normal) + WALL_CLEARANCE
+                local safeDistance = rayHit.Distance - clearance / approach
+                allowed = math.min(allowed, math.max(0, safeDistance))
+            end
+            if allowed <= 0 then break end
+        end
+        return unit * allowed
+    end
+
+    local function walkStep()
+        local character = LP.Character
+        local hum = character and character:FindFirstChildOfClass("Humanoid")
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        if not (hum and root and hum.Health > 0) then
+            restoreWalkSpeed()
+            return
+        end
+        local direction = hum.MoveDirection
+        if direction.Magnitude > 0 then
+            if savedHumanoid ~= hum then
+                restoreWalkSpeed()
+                savedHumanoid = hum
+                savedWalkSpeed = hum.WalkSpeed
+            elseif hum.WalkSpeed ~= 0 then
+                savedWalkSpeed = hum.WalkSpeed
+            end
+            hum.WalkSpeed = 0
+            local delta = safeWalkDelta(character, root, direction)
+            root.CFrame = root.CFrame + delta
+        else
+            restoreWalkSpeed()
+        end
+    end
+
+    local function paintWalk()
+        if not gui.Parent then return end
+        local state = walkActive and "ACTIVE" or "OFF"
+        walkStatus.Text = "CFrame Walk  ·  " .. state
+        manualButton.Text = "CFrame: " .. (walkActive and "Off" or "Activate")
+        manualButton.BackgroundColor3 = walkActive and ACCENT or INPUT_BG_2
+        manualButton.TextColor3 = walkActive and DARK_TEXT or ACCENT
+        walkButton.Text = "With Packet: " .. (walkCfg.withPacket and "Off" or "Activate")
+        walkButton.BackgroundColor3 = walkCfg.withPacket and ACCENT or INPUT_BG_2
+        walkButton.TextColor3 = walkCfg.withPacket and DARK_TEXT or ACCENT
+    end
+
+    local function setWalkActive(enabled, source)
+        local wanted = gui.Parent ~= nil and enabled == true
+        if wanted ~= walkActive then
+            walkActive = wanted
+            walkStartedBy = wanted and source or nil
+            walkRunId = walkRunId + 1
+            local currentRun = walkRunId
+            if wanted then
+                task.spawn(function()
+                    while walkActive and walkRunId == currentRun and gui.Parent do
+                        local ok = pcall(walkStep)
+                        if not ok then restoreWalkSpeed() end
+                        task.wait(walkCfg.delay)
+                    end
+                end)
+            else
+                restoreWalkSpeed()
+            end
+        end
+        paintWalk()
+    end
+
+    local function toggleManualWalk()
+        setWalkActive(not walkActive, "manual")
+    end
+
+    local function togglePacketLink()
+        walkCfg.withPacket = not walkCfg.withPacket
+        if walkCfg.withPacket and lagging then
+            setWalkActive(true, "packet")
+        elseif not walkCfg.withPacket and walkStartedBy == "packet" then
+            setWalkActive(false, "packet")
+        else
+            paintWalk()
+        end
+        saveWalkSettings()
+    end
+
+    local function acceptNumber(box, key)
+        local value = tonumber(box.Text)
+        if value and value > 0 and value < math.huge then
+            walkCfg[key] = value
+        end
+        box.Text = tostring(walkCfg[key])
+        saveWalkSettings()
+    end
+
+    studsBox.FocusLost:Connect(function() acceptNumber(studsBox, "studs") end)
+    delayBox.FocusLost:Connect(function() acceptNumber(delayBox, "delay") end)
+
+    local walkListeningForKey = false
+    walkKeyBox.MouseButton1Click:Connect(function()
+        if walkListeningForKey then return end
+        walkListeningForKey = true
+        walkKeyBox.Text = "Press a key..."
+        walkKeyBox.TextSize = 11
+    end)
+
+    UIS.InputBegan:Connect(function(input)
+        if not walkListeningForKey then return end
+        local keyboard = input.UserInputType == Enum.UserInputType.Keyboard
+        local pad = isGamepadInput(input)
+        if (keyboard or pad) and input.KeyCode ~= Enum.KeyCode.Unknown then
+            local name = input.KeyCode.Name
+            local key = resolveWalkKey(name)
+            if key then
+                walkCfg.keybind = name
+                walkKey = key
+                walkListeningForKey = false
+                walkKeyBox.Text = walkCfg.keybind
+                walkKeyBox.TextSize = (#walkCfg.keybind > 10) and 10 or 12
+                saveWalkSettings()
+            end
+        end
+    end)
+
+    manualButton.MouseButton1Click:Connect(toggleManualWalk)
+    walkButton.MouseButton1Click:Connect(togglePacketLink)
+
+    local lastPacketState = lagging
+    local heartbeatConn = RunService.Heartbeat:Connect(function()
+        if not gui.Parent then
+            if walkActive then
+                walkActive = false
+                walkStartedBy = nil
+                restoreWalkSpeed()
+            end
+            return
+        end
+        if lagging ~= lastPacketState then
+            lastPacketState = lagging
+            if walkCfg.withPacket then setWalkActive(lagging, "packet") end
+        end
+    end)
+
+    local inputConn = UIS.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed or listeningForKey then return end
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        if input.KeyCode == walkKey and input.KeyCode ~= toggleKey then
+            toggleManualWalk()
+        end
+    end)
+
+    gui.Destroying:Connect(function()
+        heartbeatConn:Disconnect()
+        inputConn:Disconnect()
+        walkActive = false
+        walkStartedBy = nil
+        walkRunId = walkRunId + 1
+        restoreWalkSpeed()
+    end)
+
+    if walkCfg.withPacket and lagging then
+        setWalkActive(true, "packet")
+    else
+        paintWalk()
+    end
+    saveWalkSettings()
+end
+
+task.defer(function()
+    restorePositions()
+    refreshLock()
+    applyKeybind(cfg.keybind)
+    updatePower()
+    refreshSizeLabels()
+    paintPowerBtn()
+    MainScale.Scale = cfg.scale
+    if cfg.settingsOpen then
+        setSettingsOpen(true)
+    end
+    print("[M10RU] ready · red/obsidian · key=" .. toggleKeyName .. " · scale=" .. tostring(cfg.scale))
+end)
